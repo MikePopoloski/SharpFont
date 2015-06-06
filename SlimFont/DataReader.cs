@@ -26,10 +26,22 @@ namespace SlimFont {
                 handle.Free();
         }
 
+        public byte ReadByte () => *Read(1);
+        public short ReadInt16 () => *(short*)Read(sizeof(short));
+        public int ReadInt32 () => *(int*)Read(sizeof(int));
         public ushort ReadUInt16 () => *(ushort*)Read(sizeof(ushort));
         public uint ReadUInt32 () => *(uint*)Read(sizeof(uint));
+        public short ReadInt16BE () => (short)htons(ReadUInt16());
+        public int ReadInt32BE () => (int)htonl(ReadUInt32());
         public ushort ReadUInt16BE () => htons(ReadUInt16());
         public uint ReadUInt32BE () => htonl(ReadUInt32());
+
+        public void Jump (uint position) {
+            // TODO: if the jump is within our buffer we can reuse it
+            readOffset = 0;
+            writeOffset = 0;
+            stream.Position = position;
+        }
 
         public void Skip (int count) {
             readOffset += count;

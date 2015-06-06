@@ -9,6 +9,7 @@ namespace Test {
     class Program {
         static void Main (string[] args) {
             using (var loader = new TrueTypeLoader("../../../Fonts/OpenSans-Regular.ttf")) {
+                loader.LoadFace();
             }
         }
     }

@@ -5,6 +5,10 @@ namespace SlimFont {
     struct FourCC {
         uint value;
 
+        public FourCC (uint value) {
+            this.value = value;
+        }
+
         public FourCC (string str) {
             if (str.Length != 4)
                 throw new InvalidOperationException("Invalid FourCC code");
@@ -21,6 +25,7 @@ namespace SlimFont {
         }
 
         public static implicit operator FourCC (string value) => new FourCC(value);
+        public static implicit operator FourCC (uint value) => new FourCC(value);
         public static implicit operator uint (FourCC fourCC) => fourCC.value;
 
         public static readonly FourCC Otto = "OTTO";
@@ -28,5 +33,6 @@ namespace SlimFont {
         public static readonly FourCC Ttcf = "ttcf";
         public static readonly FourCC Typ1 = "typ1";
         public static readonly FourCC Head = "head";
+        public static readonly FourCC Glyf = "glyf";
     }
 }
