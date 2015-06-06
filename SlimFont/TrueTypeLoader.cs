@@ -28,7 +28,7 @@ namespace SlimFont {
             faceOffsets = ReadTTCHeader() ?? new[] { 0u };
         }
 
-        public void LoadFace (int faceIndex = 0) {
+        public void LoadFace (Surface surface, int faceIndex = 0) {
             if (faceIndex >= faceOffsets.Length)
                 throw new ArgumentOutOfRangeException(nameof(faceIndex));
 
@@ -56,7 +56,10 @@ namespace SlimFont {
             var glyfIndex = FindTable(records, FourCC.Glyf);
             if (glyfIndex >= 0) {
                 reader.Jump(records[glyfIndex].Offset);
-                LoadGlyphs();
+                var glyph = LoadGlyph();
+
+                var renderer = new Renderer();
+                renderer.Render(glyph, surface);
             }
         }
 
@@ -88,7 +91,7 @@ namespace SlimFont {
             return offsets;
         }
 
-        void LoadGlyphs () {
+        GlyphOutline LoadGlyph () {
             // load the header
             var header = new GlyphHeader {
                 ContourCount = reader.ReadInt16BE(),
@@ -101,7 +104,7 @@ namespace SlimFont {
             // if contours is positive, we have a simple glyph
             if (header.ContourCount > 0) {
                 // read contour endpoints
-                var contours = new ushort[header.ContourCount];
+                var contours = new int[header.ContourCount];
                 var lastEndpoint = reader.ReadUInt16BE();
                 contours[0] = lastEndpoint;
                 for (int i = 1; i < contours.Length; i++) {
@@ -172,7 +175,15 @@ namespace SlimFont {
                     y += delta;
                     points[i].Y = y;
                 }
+
+                return new GlyphOutline {
+                    Points = points,
+                    PointFlags = flags,
+                    ContourEndpoints = contours
+                };
             }
+
+            return default(GlyphOutline);
         }
 
         void Error (string message) {
@@ -206,22 +217,6 @@ namespace SlimFont {
             public short MinY;
             public short MaxX;
             public short MaxY;
-        }
-
-        struct Point {
-            public int X;
-            public int Y;
-        }
-
-        [Flags]
-        enum GlyphFlags : byte {
-            None = 0,
-            OnCurve = 0x1,
-            ShortX = 0x2,
-            ShortY = 0x4,
-            Repeat = 0x8,
-            SameX = 0x10,
-            SameY = 0x20
         }
 
         const int MaxFontsInCollection = 64;

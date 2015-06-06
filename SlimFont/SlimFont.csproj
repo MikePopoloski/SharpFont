@@ -38,6 +38,8 @@
   <ItemGroup>
     <Compile Include="DataReader.cs" />
     <Compile Include="FourCC.cs" />
+    <Compile Include="GlyphOutline.cs" />
+    <Compile Include="Renderer.cs" />
     <Compile Include="TrueTypeLoader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

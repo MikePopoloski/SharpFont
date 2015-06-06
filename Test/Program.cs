@@ -1,16 +1,40 @@
 ﻿using SlimFont;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace Test {
     class Program {
-        static void Main (string[] args) {
+        unsafe static void Main (string[] args) {
+            var surface = new Surface {
+                Bits = Marshal.AllocHGlobal(512 * 512),
+                Width = 512,
+                Height = 512,
+                Pitch = 512
+            };
+
             using (var loader = new TrueTypeLoader("../../../Fonts/OpenSans-Regular.ttf")) {
-                loader.LoadFace();
+                loader.LoadFace(surface);
             }
+
+            // copy the output to a bitmap for easy debugging
+            var bitmap = new Bitmap(surface.Width, surface.Height);
+            var bitmapData = bitmap.LockBits(new Rectangle(0, 0, surface.Width, surface.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+
+            for (int y = 0; y < surface.Height; y++) {
+                var dest = (byte*)bitmapData.Scan0 + y * bitmapData.Stride;
+                var src = (byte*)surface.Bits + y * surface.Pitch;
+
+                for (int x = 0; x < surface.Width; x++) {
+                    var b = *src++;
+                    *dest++ = b;
+                    *dest++ = b;
+                    *dest++ = b;
+                }
+            }
+
+            bitmap.UnlockBits(bitmapData);
+            bitmap.Save("result.bmp");
         }
     }
 }
