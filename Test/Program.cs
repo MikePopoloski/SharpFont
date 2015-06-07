@@ -7,11 +7,15 @@ namespace Test {
     class Program {
         unsafe static void Main (string[] args) {
             var surface = new Surface {
-                Bits = Marshal.AllocHGlobal(512 * 512),
-                Width = 512,
-                Height = 512,
-                Pitch = 512
+                Bits = Marshal.AllocHGlobal(27*46),
+                Width = 27,
+                Height = 46,
+                Pitch = 27
             };
+
+            var stuff = (byte*)surface.Bits;
+            for (int i = 0; i < 27 * 46; i++)
+                *stuff++ = 0;
 
             using (var loader = new TrueTypeLoader("../../../Fonts/OpenSans-Regular.ttf")) {
                 loader.LoadFace(surface);

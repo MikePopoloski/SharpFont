@@ -56,8 +56,11 @@ namespace SlimFont {
             var glyfIndex = FindTable(records, FourCC.Glyf);
             if (glyfIndex >= 0) {
                 reader.Jump(records[glyfIndex].Offset);
-                var glyph = LoadGlyph();
 
+                for (int i = 0; i < 270; i++)
+                    LoadGlyph();
+
+                var glyph = LoadGlyph();
                 var renderer = new Renderer();
                 renderer.Render(glyph, surface);
             }
@@ -119,6 +122,7 @@ namespace SlimFont {
                 // the last contour's endpoint is the number of points in the glyph
                 var pointCount = lastEndpoint + 1;
                 var points = new Point[pointCount];
+                var types = new PointType[pointCount];
 
                 // read instruction data
                 var instructionLength = reader.ReadUInt16BE();
@@ -156,7 +160,7 @@ namespace SlimFont {
                         delta = reader.ReadInt16BE();
 
                     x += delta;
-                    points[i].X = x;
+                    points[i].X = MulFix(x, 131072); // TODO
                 }
 
                 var y = 0;
@@ -173,21 +177,32 @@ namespace SlimFont {
                         delta = reader.ReadInt16BE();
 
                     y += delta;
-                    points[i].Y = y;
+                    points[i].Y = MulFix(y, 131072); //TODO
+                    types[i] = (f & GlyphFlags.OnCurve) != 0 ? PointType.OnCurve : PointType.Quadratic;
                 }
 
                 return new GlyphOutline {
                     Points = points,
-                    PointFlags = flags,
+                    PointTypes = types,
                     ContourEndpoints = contours
                 };
             }
+            else {
+                throw new Exception();
+            }
+
 
             return default(GlyphOutline);
         }
 
         void Error (string message) {
             throw new Exception(message);
+        }
+
+        static int MulFix (int a, int b) {
+            var c = (long)a * b;
+            c += 0x8000 + (c >> 63);
+            return (int)(c >> 16);
         }
 
         static int FindTable (TableRecord[] records, FourCC tag) {
@@ -217,6 +232,17 @@ namespace SlimFont {
             public short MinY;
             public short MaxX;
             public short MaxY;
+        }
+
+        [Flags]
+        enum GlyphFlags : byte {
+            None = 0,
+            OnCurve = 0x1,
+            ShortX = 0x2,
+            ShortY = 0x4,
+            Repeat = 0x8,
+            SameX = 0x10,
+            SameY = 0x20
         }
 
         const int MaxFontsInCollection = 64;

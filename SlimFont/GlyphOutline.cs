@@ -7,23 +7,27 @@ using System.Threading.Tasks;
 namespace SlimFont {
     struct GlyphOutline {
         public Point[] Points;
-        public GlyphFlags[] PointFlags;
+        public PointType[] PointTypes;
         public int[] ContourEndpoints;
     }
 
     struct Point {
         public int X;
         public int Y;
+
+        public Point (int x, int y) {
+            X = x;
+            Y = y;
+        }
+
+        public override string ToString () {
+            return $"{X}, {Y}";
+        }
     }
 
-    [Flags]
-    enum GlyphFlags : byte {
-        None = 0,
-        OnCurve = 0x1,
-        ShortX = 0x2,
-        ShortY = 0x4,
-        Repeat = 0x8,
-        SameX = 0x10,
-        SameY = 0x20
+    enum PointType {
+        OnCurve,
+        Quadratic,
+        Cubic
     }
 }
