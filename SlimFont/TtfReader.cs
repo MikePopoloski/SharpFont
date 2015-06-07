@@ -31,7 +31,7 @@ namespace SlimFont {
             faceOffsets = ReadTTCHeader(reader) ?? new[] { 0u };
         }
 
-        public void LoadFace (Surface surface, int faceIndex = 0) {
+        public FontFace LoadFace (int faceIndex = 0) {
             if (faceIndex >= faceOffsets.Length)
                 throw new ArgumentOutOfRangeException(nameof(faceIndex));
 
@@ -66,9 +66,6 @@ namespace SlimFont {
             if (SeekToTable(reader, records, FourCC.Post))
                 SfntTables.ReadPost(reader, ref faceHeader);
 
-
-
-
             // 'OS/2' has a bunch of metrics in it
 
             // TODO: metrics tables
@@ -88,7 +85,7 @@ namespace SlimFont {
                 // first load the max position table; it will tell us how many glyphs we have
                 SeekToTable(reader, records, FourCC.Maxp, required: true);
                 SfntTables.ReadMaxp(reader, ref faceHeader);
-                if (faceHeader.GlyphCount > short.MaxValue)
+                if (faceHeader.GlyphCount > MaxGlyphs)
                     Error("Font contains too many glyphs.");
 
                 // now read in the loca table, which tells us the byte offset of each glyph
@@ -96,26 +93,24 @@ namespace SlimFont {
                 SeekToTable(reader, records, FourCC.Loca, required: true);
                 SfntTables.ReadLoca(reader, faceHeader.IndexFormat, loca, faceHeader.GlyphCount);
 
-                // rebase our loca offsets to be relative to the start of the 'glyf' table
+                // read in all glyphs
                 SeekToTable(reader, records, FourCC.Glyf);
                 var glyfOffset = reader.Position;
-
-                // allocate a table that will hold data for all of our glyphs
                 var glyphTable = new GlyphData[faceHeader.GlyphCount];
                 for (int i = 0; i < glyphTable.Length; i++)
-                    glyphTable[i].Offset = glyfOffset + loca[i];
-
-                // read in all glyphs
-                for (int i = 0; i < glyphTable.Length; i++)
-                    ReadGlyph(reader, i, 0, glyphTable);
-                //var renderer = new Renderer();
-                //renderer.Render(glyph, surface);
+                    ReadGlyph(reader, i, 0, glyphTable, glyfOffset, loca);
             }
+
+            // build the final font face; all data has been copied
+            // out of the font file so we can close it after this
+            var face = new FontFace();
+            return face;
         }
 
         public void Dispose () {
             if (stream != null) {
-                stream.Close();
+                if (!leaveOpen)
+                    stream.Close();
                 reader.Dispose();
 
                 stream = null;
@@ -141,11 +136,10 @@ namespace SlimFont {
             return offsets;
         }
 
-        static void ReadGlyph (DataReader reader, int glyphIndex, int recursionDepth, GlyphData[] glyphTable) {
+        static void ReadGlyph (DataReader reader, int glyphIndex, int recursionDepth, GlyphData[] glyphTable, uint glyfOffset, uint* loca) {
             // check if this glyph has already been loaded; this can happen
             // if we're recursively loading subglyphs as part of a composite
-            var glyph = glyphTable[glyphIndex];
-            if (glyph.Loaded)
+            if (glyphTable[glyphIndex] != null)
                 return;
 
             // prevent bad font data from causing infinite recursion
@@ -153,19 +147,23 @@ namespace SlimFont {
                 Error("Bad font data; infinite composite recursion.");
 
             // seek to the right spot and load the header
-            reader.Seek(glyph.Offset);
+            reader.Seek(glyfOffset + loca[glyphIndex]);
             var header = SfntTables.ReadGlyphHeader(reader);
             var contours = header.ContourCount;
+            if (contours < -1 || contours > MaxContours)
+                Error("Invalid number of contours for glyph.");
+
+            // load metrics for this glyph
 
             if (contours == 0) {
             }
             else if (contours > 0) {
                 // positive contours means a simple glyph
                 var simple = SfntTables.ReadSimpleGlyph(reader, contours);
-                glyph.Outline = simple.Outline;
-                glyph.Instructions = simple.Instructions;
-                glyph.Loaded = true;
-                glyphTable[glyphIndex] = glyph;
+                glyphTable[glyphIndex] = new GlyphData {
+                    Outline = simple.Outline,
+                    Instructions = simple.Instructions
+                };
             }
             else if (contours == -1) {
                 // -1 means composite glyph
@@ -174,13 +172,11 @@ namespace SlimFont {
 
                 // read each subglyph recrusively
                 for (int i = 0; i < subglyphs.Length; i++) {
-                    ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable);
+                    ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable, glyfOffset, loca);
 
                     // TODO
                 }
             }
-            else
-                Error("Invalid number of contours for glyph.");
         }
 
         static void Error (string message) {
@@ -223,16 +219,16 @@ namespace SlimFont {
             public override string ToString () => Tag.ToString();
         }
 
-        struct GlyphData {
-            public GlyphOutline Outline;
-            public byte[] Instructions;
-            public uint Offset;
-            public bool Loaded;
-        }
-
+        const int MaxGlyphs = short.MaxValue;
+        const int MaxContours = 256;
         const int MaxRecursion = 128;
         const int MaxFontsInCollection = 64;
         const uint TTFv1 = 0x10000;
         const uint TTFv2 = 0x20000;
+    }
+
+    class GlyphData {
+        public GlyphOutline Outline;
+        public byte[] Instructions;
     }
 }

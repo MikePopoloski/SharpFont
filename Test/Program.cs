@@ -7,7 +7,7 @@ namespace Test {
     class Program {
         unsafe static void Main (string[] args) {
             var surface = new Surface {
-                Bits = Marshal.AllocHGlobal(27*46),
+                Bits = Marshal.AllocHGlobal(27 * 46),
                 Width = 27,
                 Height = 46,
                 Pitch = 27
@@ -18,7 +18,7 @@ namespace Test {
                 *stuff++ = 0;
 
             using (var loader = new TtfReader("../../../Fonts/OpenSans-Regular.ttf")) {
-                loader.LoadFace(surface);
+                var face = loader.LoadFace();
             }
 
             // copy the output to a bitmap for easy debugging

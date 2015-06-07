@@ -6,5 +6,9 @@ using System.Threading.Tasks;
 
 namespace SlimFont {
     public class FontFace {
+        internal GlyphData[] Glyphs;
+
+        internal FontFace () {
+        }
     }
 }
