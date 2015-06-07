@@ -12,6 +12,8 @@ namespace SlimFont {
         int readOffset;
         int writeOffset;
 
+        public uint Position => (uint)(stream.Position - (writeOffset - readOffset));
+
         public DataReader (Stream stream, int maxReadLength = 4096) {
             this.stream = stream;
             this.maxReadLength = maxReadLength;
@@ -36,8 +38,14 @@ namespace SlimFont {
         public ushort ReadUInt16BE () => htons(ReadUInt16());
         public uint ReadUInt32BE () => htonl(ReadUInt32());
 
-        public void Jump (uint position) {
-            // TODO: if the jump is within our buffer we can reuse it
+        public byte[] ReadBytes (int count) {
+            var result = new byte[count];
+            Marshal.Copy(new IntPtr(Read(count)), result, 0, count);
+            return result;
+        }
+
+        public void Seek (uint position) {
+            // TODO: if the position is within our buffer we can reuse it
             readOffset = 0;
             writeOffset = 0;
             stream.Position = position;

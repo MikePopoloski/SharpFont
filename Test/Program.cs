@@ -17,7 +17,7 @@ namespace Test {
             for (int i = 0; i < 27 * 46; i++)
                 *stuff++ = 0;
 
-            using (var loader = new TrueTypeLoader("../../../Fonts/OpenSans-Regular.ttf")) {
+            using (var loader = new TtfReader("../../../Fonts/OpenSans-Regular.ttf")) {
                 loader.LoadFace(surface);
             }
 
