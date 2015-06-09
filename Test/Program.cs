@@ -19,6 +19,7 @@ namespace Test {
 
             using (var loader = new TtfReader("../../../Fonts/OpenSans-Regular.ttf")) {
                 var face = loader.LoadFace();
+                face.RenderGlyph(0, surface);
             }
 
             // copy the output to a bitmap for easy debugging

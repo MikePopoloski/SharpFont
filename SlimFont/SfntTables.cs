@@ -114,7 +114,7 @@ namespace SlimFont {
                     delta = reader.ReadInt16BE();
 
                 x += delta;
-                points[i].X = x;
+                points[i].X = (F26Dot6)x;
             }
 
             var y = 0;
@@ -131,7 +131,7 @@ namespace SlimFont {
                     delta = reader.ReadInt16BE();
 
                 y += delta;
-                points[i].Y = y;
+                points[i].Y = (F26Dot6)y;
                 types[i] = (f & SimpleGlyphFlags.OnCurve) != 0 ? PointType.OnCurve : PointType.Quadratic;
             }
 

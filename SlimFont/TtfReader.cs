@@ -55,9 +55,11 @@ namespace SlimFont {
                 };
             }
 
+            var fontFace = new FontFace();
+
             // read the face header
-            SeekToTable(reader, records, FourCC.Head, required: true);
             var faceHeader = new FaceHeader();
+            SeekToTable(reader, records, FourCC.Head, required: true);
             SfntTables.ReadHead(reader, ref faceHeader);
             if (faceHeader.UnitsPerEm == 0)
                 Error("Invalid 'head' table.");
@@ -99,12 +101,13 @@ namespace SlimFont {
                 var glyphTable = new GlyphData[faceHeader.GlyphCount];
                 for (int i = 0; i < glyphTable.Length; i++)
                     ReadGlyph(reader, i, 0, glyphTable, glyfOffset, loca);
+
+                fontFace.Glyphs = glyphTable;
             }
 
             // build the final font face; all data has been copied
             // out of the font file so we can close it after this
-            var face = new FontFace();
-            return face;
+            return fontFace;
         }
 
         public void Dispose () {

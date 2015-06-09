@@ -59,7 +59,10 @@ namespace SlimFont {
         public static explicit operator F26Dot6 (int v) => new F26Dot6(v);
         public static explicit operator int (F26Dot6 v) => v.value;
 
+        public static F26Dot6 operator +(F26Dot6 lhs, F26Dot6 rhs) => (F26Dot6)(lhs.value + rhs.value);
         public static F26Dot6 operator -(F26Dot6 lhs, F26Dot6 rhs) => (F26Dot6)(lhs.value - rhs.value);
+        public static F26Dot6 operator /(F26Dot6 lhs, int rhs) => (F26Dot6)(lhs.value / rhs);
+
     }
 
     // Fixed point: 24.8
@@ -68,7 +71,7 @@ namespace SlimFont {
         int value;
 
         public int IntPart => value >> 8;
-        public int FracPart => value & 0xff;
+        public F24Dot8 FracPart => (F24Dot8)(value & 0xff);
 
         public F24Dot8 (int v) {
             value = v;
@@ -133,6 +136,9 @@ namespace SlimFont {
 
         public static F24Dot8 Floor (F24Dot8 v) => (F24Dot8)((int)v & ~0xff);
 
+        public static F26Dot6 Min (F26Dot6 a, F26Dot6 b) => (int)a < (int)b ? a : b;
+        public static F26Dot6 Max (F26Dot6 a, F26Dot6 b) => (int)a > (int)b ? a : b;
+
         public static void DivMod (F24Dot8 dividend, F24Dot8 divisor, out F24Dot8 quotient, out F24Dot8 remainder) {
             var q = (int)dividend / (int)divisor;
             var r = (int)dividend % (int)divisor;
@@ -157,17 +163,17 @@ namespace SlimFont {
 
             for (int i = 1; i < points.Length; i++) {
                 var point = points[i];
-                minX = Math.Min(minX, point.X);
-                minY = Math.Min(minY, point.Y);
-                maxX = Math.Max(maxX, point.X);
-                maxY = Math.Max(maxY, point.Y);
+                minX = Min(minX, point.X);
+                minY = Min(minY, point.Y);
+                maxX = Max(maxX, point.X);
+                maxY = Max(maxY, point.Y);
             }
 
             return new BoundingBox {
-                MinX = Floor((F26Dot6)minX),
-                MinY = Floor((F26Dot6)minY),
-                MaxX = Ceiling((F26Dot6)maxX),
-                MaxY = Ceiling((F26Dot6)maxY)
+                MinX = Floor(minX),
+                MinY = Floor(minY),
+                MaxX = Ceiling(maxX),
+                MaxY = Ceiling(maxY)
             };
         }
     }

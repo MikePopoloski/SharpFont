@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 namespace SlimFont {
     // handles rasterizing curves to a bitmap
+    // the algorithm is heavily inspired by the FreeType2 renderer; thanks guys!
     unsafe class Renderer {
         Surface surface;                // the surface we're currently rendering to
         int[] scanlines;                // one scanline per Y, points into cell buffer
@@ -20,10 +21,10 @@ namespace SlimFont {
         int maxX, maxY;
         bool cellActive;                // whether the current cell has active data
         F24Dot8 subpixelX, subpixelY;   // subpixel position of active point
-        F24Dot8 lastSubpixelY;          // last subpixel Y position
 
         public Renderer () {
             cells = new Cell[1024];
+            scanlines = new int[128];
         }
 
         public void Clear () {
@@ -40,7 +41,12 @@ namespace SlimFont {
             this.maxX = maxX;
             this.maxY = maxY;
 
-            // DO ME NEXT HERE SCANLINES
+            scanlineCount = maxY - minY;
+            if (scanlineCount >= scanlines.Length)
+                scanlines = new int[scanlineCount];
+
+            for (int i = 0; i < scanlineCount; i++)
+                scanlines[i] = -1;
         }
 
         public void MoveTo (Point point) {
@@ -51,7 +57,6 @@ namespace SlimFont {
             // start at the new position
             subpixelX = new F24Dot8(point.X);
             subpixelY = new F24Dot8(point.Y);
-            lastSubpixelY = FixedMath.Floor(subpixelY);
 
             // calculate cell coordinates
             cellX = Math.Max(minX - 1, Math.Min(subpixelX.IntPart, maxX)) - minX;
@@ -68,7 +73,7 @@ namespace SlimFont {
             var targetY = new F24Dot8(point.Y);
 
             // figure out which scanlines this line crosses
-            var startScanline = lastSubpixelY.IntPart;
+            var startScanline = subpixelY.IntPart;
             var endScanline = targetY.IntPart;
 
             // vertical clipping
@@ -77,15 +82,14 @@ namespace SlimFont {
                 // just save this position since it's outside our bounds and continue
                 subpixelX = targetX;
                 subpixelY = targetY;
-                lastSubpixelY = FixedMath.Floor(targetY);
                 return;
             }
 
             // render the line
             var dx = targetX - subpixelX;
             var dy = targetY - subpixelY;
-            var fringeStart = subpixelY - lastSubpixelY;
-            var fringeEnd = (F24Dot8)targetY.FracPart;
+            var fringeStart = subpixelY.FracPart;
+            var fringeEnd = targetY.FracPart;
 
             if (startScanline == endScanline) {
                 // this is a horizontal line
@@ -93,7 +97,7 @@ namespace SlimFont {
             }
             else if ((int)dx == 0) {
                 // this is a vertical line
-                var xarea = subpixelX.FracPart << 1;
+                var xarea = (int)subpixelX.FracPart << 1;
                 var x = subpixelX.IntPart;
 
                 // check if we're scanning up or down
@@ -177,7 +181,6 @@ namespace SlimFont {
 
             subpixelX = targetX;
             subpixelY = targetY;
-            lastSubpixelY = FixedMath.Floor(targetY);
         }
 
         public void QuadraticCurveTo (Point control, Point point) {
@@ -263,8 +266,8 @@ namespace SlimFont {
         void RenderScanline (int scanline, F24Dot8 x1, F24Dot8 y1, F24Dot8 x2, F24Dot8 y2) {
             var startCell = x1.IntPart;
             var endCell = x2.IntPart;
-            var fringeStart = (F24Dot8)x1.FracPart;
-            var fringeEnd = (F24Dot8)x2.FracPart;
+            var fringeStart = x1.FracPart;
+            var fringeEnd = x2.FracPart;
 
             // trivial case; exact same Y, down to the subpixel
             if (y1 == y2) {

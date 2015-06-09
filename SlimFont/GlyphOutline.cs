@@ -15,7 +15,7 @@ namespace SlimFont {
         public F26Dot6 X;
         public F26Dot6 Y;
 
-        public Point (int x, int y) {
+        public Point (F26Dot6 x, F26Dot6 y) {
             X = x;
             Y = y;
         }
