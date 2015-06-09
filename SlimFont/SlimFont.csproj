@@ -40,7 +40,7 @@
     <Compile Include="FontFace.cs" />
     <Compile Include="FourCC.cs" />
     <Compile Include="GlyphOutline.cs" />
-    <Compile Include="Math.cs" />
+    <Compile Include="FixedMath.cs" />
     <Compile Include="Renderer.cs" />
     <Compile Include="SfntTables.cs" />
     <Compile Include="TtfReader.cs" />

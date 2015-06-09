@@ -12,8 +12,8 @@ namespace SlimFont {
     }
 
     struct Point {
-        public int X;
-        public int Y;
+        public F26Dot6 X;
+        public F26Dot6 Y;
 
         public Point (int x, int y) {
             X = x;

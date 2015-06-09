@@ -8,411 +8,241 @@ using System.Threading.Tasks;
 namespace SlimFont {
     // handles rasterizing curves to a bitmap
     unsafe class Renderer {
-        Context context = new Context();
-        Surface surface;
+        Surface surface;                // the surface we're currently rendering to
+        int[] scanlines;                // one scanline per Y, points into cell buffer
+        Cell[] cells;
+        int activeArea;                 // running total of the active cell's area
+        int activeCoverage;             // ditto for coverage
+        int cellX, cellY;               // pixel position of the active cell
+        int cellCount;                  // number of cells in active use
+        int scanlineCount;              // number of scanlines we're rendering
+        int minX, minY;                 // bounds of the glyph surface, in plain old pixels
+        int maxX, maxY;
+        bool cellActive;                // whether the current cell has active data
+        F24Dot8 subpixelX, subpixelY;   // subpixel position of active point
+        F24Dot8 lastSubpixelY;          // last subpixel Y position
 
         public Renderer () {
+            cells = new Cell[1024];
         }
 
-        // we assume the caller has done all of the necessary error checking
-        public void Render (GlyphOutline outline, Surface surface) {
-            var bbox = ComputeBoundingBox(outline);
-            var shiftX = -bbox.MinX;
-            var shiftY = -bbox.MinY;
-            TranslateOutline(outline, shiftX, shiftY);
-
-            // compute bounding boxes and perform clipping
-            var clipBox = new BoundingBox { MaxX = surface.Width, MaxY = surface.Height };
-            bbox = ComputeHighResBoundingBox(outline, clipBox);
-            if (bbox.Area <= 0)
-                return;
-
-            // set up memory regions
-            var cells = stackalloc Cell[CellBufferSize];
-            var bands = stackalloc Band[MaxBands];
-            var bandCount = Math.Min(MaxBands, Math.Max(1, bbox.Height / BandSize));
-
-            // reset our drawing context
-            context.Clear();
-            context.Bounds = bbox;
-            context.Cells = cells;
-            this.surface = surface;
-
-            // we draw the font outline by iterating through horizontal stripes
-            // we try to make the stripes as large as possible, but if there is a
-            // lot of complexity in a scanline we shrink them down and draw more of them
-            var min = bbox.MinY;
-            for (int i = 0; i < bandCount; i++) {
-                // the last band always extends fully to the bottom edge of the bounding box
-                var max = min + BandSize;
-                if (i == bandCount - 1 || max > bbox.MaxY)
-                    max = bbox.MaxY;
-
-                bands[0].Min = min;
-                bands[0].Max = max;
-
-                var currentBand = bands;
-                while (currentBand >= bands) {
-                    // render the band
-                    RenderBand(currentBand, outline);
-                    currentBand--;
-                }
-
-                // advance the band
-                min = max;
-            }
+        public void Clear () {
+            scanlineCount = 0;
+            cellCount = 0;
+            activeArea = 0;
+            activeCoverage = 0;
+            cellActive = false;
         }
 
-        void RenderBand (Band* band, GlyphOutline outline) {
-            // set up the context
-            context.HasCell = false;
-            context.BandHeight = band->Max - band->Min;
-            context.CellCount = 0;
-            context.Bounds.MinY = band->Min;
-            context.Bounds.MaxY = band->Max;
+        public void SetBounds (int minX, int minY, int maxX, int maxY) {
+            this.minX = minX;
+            this.minY = minY;
+            this.maxX = maxX;
+            this.maxY = maxY;
 
-            // memory for our cell pointers; we maintain a table
-            // of linked lists of cells, one top-level entry per y level
-            var scanlines = stackalloc Cell*[context.BandHeight];
-            context.Scanlines = scanlines;
-
-            // draw the glyph into the current band region
-            Decompose(outline);
-            if (context.HasCell)
-                RecordCell();
-
-            // fill in the area bounded by the contour
-            Fill();
+            // DO ME NEXT HERE SCANLINES
         }
 
-        void MoveTo (Point point) {
+        public void MoveTo (Point point) {
             // record current cell, if any
-            if (context.HasCell)
-                RecordCell();
+            if (cellActive)
+                RetireActiveCell();
 
             // start at the new position
-            point = Upscale(point);
+            subpixelX = new F24Dot8(point.X);
+            subpixelY = new F24Dot8(point.Y);
+            lastSubpixelY = FixedMath.Floor(subpixelY);
 
-            var x = Math.Max(context.Bounds.MinX - 1, Math.Min(Truncate(point.X), context.Bounds.MaxX));
-            var y = Truncate(point.Y);
+            // calculate cell coordinates
+            cellX = Math.Max(minX - 1, Math.Min(subpixelX.IntPart, maxX)) - minX;
+            cellY = subpixelY.IntPart - minY;
 
-            context.Area = 0;
-            context.Coverage = 0;
-            context.Coord = new Point(x - context.Bounds.MinX, y - context.Bounds.MinY);
-            context.LastSubpixelY = Subpixels(y);
-            context.HasCell = true;
-
-            SetCurrentCell(x, y);
-
-            context.Subpixel = point;
+            // activate if this is a valid cell location
+            cellActive = cellX < maxX && cellY < maxY;
+            activeArea = 0;
+            activeCoverage = 0;
         }
 
-        // render a line as a series of scanlines
-        void LineTo (Point point) {
-            var target = Upscale(point);
+        public void LineTo (Point point) {
+            var targetX = new F24Dot8(point.X);
+            var targetY = new F24Dot8(point.Y);
 
-            var subpixelY1 = Truncate(context.LastSubpixelY);
-            var subpixelY2 = Truncate(target.Y);
-            var y1 = context.Subpixel.Y - context.LastSubpixelY;
-            var y2 = target.Y - Subpixels(subpixelY2);
-            var dx = target.X - context.Subpixel.X;
-            var dy = target.Y - context.Subpixel.Y;
+            // figure out which scanlines this line crosses
+            var startScanline = lastSubpixelY.IntPart;
+            var endScanline = targetY.IntPart;
 
             // vertical clipping
-            var min = subpixelY1;
-            var max = subpixelY2;
-            if (subpixelY1 > subpixelY2) {
-                min = subpixelY2;
-                max = subpixelY1;
+            if (Math.Min(startScanline, endScanline) >= maxY ||
+                Math.Max(startScanline, endScanline) < minY) {
+                // just save this position since it's outside our bounds and continue
+                subpixelX = targetX;
+                subpixelY = targetY;
+                lastSubpixelY = FixedMath.Floor(targetY);
+                return;
             }
 
-            if (min < context.Bounds.MaxY && max >= context.Bounds.MinY) {
-                if (subpixelY1 == subpixelY2) {
-                    // this is a horizontal line
-                    RenderScanline(subpixelY1, new Point(context.Subpixel.X, y1), new Point(target.X, y2));
+            // render the line
+            var dx = targetX - subpixelX;
+            var dy = targetY - subpixelY;
+            var fringeStart = subpixelY - lastSubpixelY;
+            var fringeEnd = (F24Dot8)targetY.FracPart;
+
+            if (startScanline == endScanline) {
+                // this is a horizontal line
+                RenderScanline(startScanline, subpixelX, fringeStart, targetX, fringeEnd);
+            }
+            else if ((int)dx == 0) {
+                // this is a vertical line
+                var xarea = subpixelX.FracPart << 1;
+                var x = subpixelX.IntPart;
+
+                // check if we're scanning up or down
+                var first = F24Dot8.One;
+                var increment = 1;
+                if ((int)dy < 0) {
+                    first = F24Dot8.Zero;
+                    increment = -1;
                 }
-                else if (dx == 0) {
-                    // this is a vertical line
-                    var x = Truncate(context.Subpixel.X);
-                    var doubleX = (context.Subpixel.X - Subpixels(x)) << 1;
 
-                    // check if we're going up or down
-                    var first = OnePixel;
-                    var increment = 1;
-                    if (dy < 0) {
-                        first = 0;
-                        increment = -1;
-                    }
+                // first cell fringe
+                var deltaY = (int)(first - fringeStart);
+                activeArea += xarea * deltaY;
+                activeCoverage += deltaY;
+                startScanline += increment;
+                SetCurrentCell(x, startScanline);
 
-                    // first cell
-                    var deltaY = first - y1;
-                    context.Area += doubleX * deltaY;
-                    context.Coverage += deltaY;
-                    subpixelY1 += increment;
-                    SetCurrentCell(x, subpixelY1);
-
-                    // any other cells covered by the line
-                    deltaY = first + first - OnePixel;
-                    var area = doubleX * deltaY;
-                    while (subpixelY1 != subpixelY2) {
-                        context.Area += area;
-                        context.Coverage += deltaY;
-                        subpixelY1 += increment;
-                        SetCurrentCell(x, subpixelY1);
-                    }
-
-                    // finish off
-                    deltaY = y2 - OnePixel + first;
-                    context.Area += doubleX * deltaY;
-                    context.Coverage += deltaY;
+                // any other cells covered by the line
+                deltaY = (int)(first + first - F24Dot8.One);
+                var area = xarea * deltaY;
+                while (startScanline != endScanline) {
+                    activeArea += area;
+                    activeCoverage += deltaY;
+                    startScanline += increment;
+                    SetCurrentCell(x, startScanline);
                 }
-                else {
-                    // slanted line
-                    var p = (OnePixel - y1) * dx;
-                    var first = OnePixel;
-                    var increment = 1;
 
-                    if (dy < 0) {
-                        p = y1 * dx;
-                        first = 0;
-                        increment = -1;
-                        dy = -dy;
-                    }
+                // ending fringe
+                deltaY = (int)(fringeEnd - F24Dot8.One + first);
+                activeArea += xarea * deltaY;
+                activeCoverage += deltaY;
+            }
+            else {
+                // diagonal line
+                // check if we're scanning up or down
+                var dist = (F24Dot8.One - fringeStart) * dx;
+                var first = F24Dot8.One;
+                var increment = 1;
+                if ((int)dy < 0) {
+                    dist = fringeStart * dx;
+                    first = F24Dot8.Zero;
+                    increment = -1;
+                    dy = -dy;
+                }
 
-                    int delta, mod;
-                    DivMod(p, dy, out delta, out mod);
+                // render the first scanline
+                F24Dot8 delta, mod;
+                FixedMath.DivMod(dist, dy, out delta, out mod);
 
-                    var x = context.Subpixel.X + delta;
-                    RenderScanline(subpixelY1, new Point(context.Subpixel.X, y1), new Point(x, first));
+                var x = subpixelX + delta;
+                RenderScanline(startScanline, subpixelX, fringeStart, x, first);
+                startScanline += increment;
+                SetCurrentCell(x.IntPart, startScanline);
 
-                    subpixelY1 += increment;
-                    SetCurrentCell(Truncate(x), subpixelY1);
+                // step along the line
+                if (startScanline != endScanline) {
+                    F24Dot8 lift, rem;
+                    FixedMath.DivMod(F24Dot8.One * dx, dy, out lift, out rem);
+                    mod -= dy;
 
-                    if (subpixelY1 != subpixelY2) {
-                        p = OnePixel * dx;
-
-                        int lift, rem;
-                        DivMod(p, dy, out lift, out rem);
-
-                        mod -= dy;
-                        while (subpixelY1 != subpixelY2) {
-                            delta = lift;
-                            mod += rem;
-                            if (mod >= 0) {
-                                mod -= dy;
-                                delta++;
-                            }
-
-                            var x2 = x + delta;
-                            RenderScanline(subpixelY1, new Point(x, OnePixel - first), new Point(x2, first));
-                            x = x2;
-
-                            subpixelY1 += increment;
-                            SetCurrentCell(Truncate(x), subpixelY1);
+                    while (startScanline != endScanline) {
+                        delta = lift;
+                        mod += rem;
+                        if ((int)mod >= 0) {
+                            mod -= dy;
+                            delta++;
                         }
+
+                        var x2 = x + delta;
+                        RenderScanline(startScanline, x, F24Dot8.One - first, x2, first);
+                        x = x2;
+
+                        startScanline += increment;
+                        SetCurrentCell(x.IntPart, startScanline);
                     }
-
-                    RenderScanline(subpixelY1, new Point(x, OnePixel - first), new Point(target.X, y2));
-                }
-            }
-
-            context.Subpixel = target;
-            context.LastSubpixelY = Subpixels(subpixelY2);
-        }
-
-        void QuadraticCurveTo (Point control, Point point) {
-        }
-
-        // set the current cell to a new position
-        void SetCurrentCell (int x, int y) {
-            // all cells on the left of the clipping region go to the MinX - 1 position
-            y -= context.Bounds.MinY;
-            x = Math.Min(x, context.Bounds.MaxX);
-            x -= context.Bounds.MinX;
-            x = Math.Max(x, -1);
-
-            // moving to a new cell?
-            if (x != context.Coord.X || y != context.Coord.Y) {
-                if (context.HasCell)
-                    RecordCell();
-
-                context.Area = 0;
-                context.Coverage = 0;
-                context.Coord = new Point(x, y);
-            }
-
-            context.HasCell = y < context.Bounds.Height && x < context.Bounds.Width;
-        }
-
-        void RecordCell () {
-            if ((context.Area | context.Coverage) != 0) {
-                var cell = FindCell();
-                cell->Area += context.Area;
-                cell->Coverage = context.Coverage;
-            }
-        }
-
-        Cell* FindCell () {
-            var x = Math.Min(context.Coord.X, context.Bounds.Width);
-            var y = context.Coord.Y;
-
-            var cell = context.Scanlines[y];
-            if (cell == null || cell->X > x) {
-                cell = GetNewCell(x, cell);
-                context.Scanlines[y] = cell;
-                return cell;
-            }
-
-            while (cell->X != x) {
-                var next = cell->Next;
-                if (next == null || next->X > x) {
-                    var newCell = GetNewCell(x, next);
-                    cell->Next = newCell;
-                    return newCell;
                 }
 
-                cell = next;
+                // last scanline
+                RenderScanline(startScanline, x, F24Dot8.One - first, targetX, fringeEnd);
             }
 
-            return cell;
+            subpixelX = targetX;
+            subpixelY = targetY;
+            lastSubpixelY = FixedMath.Floor(targetY);
         }
 
-        Cell* GetNewCell (int x, Cell* next) {
-            if (context.CellCount >= CellBufferSize)
-                throw new InvalidOperationException();
-
-            var cell = context.Cells + context.CellCount++;
-            cell->X = x;
-            cell->Area = 0;
-            cell->Coverage = 0;
-            cell->Next = next;
-
-            return cell;
+        public void QuadraticCurveTo (Point control, Point point) {
         }
 
-        void RenderScanline (int subpixelY, Point a, Point b) {
-            var cellX1 = Truncate(a.X);
-            var cellX2 = Truncate(b.X);
-            var coordX1 = a.X - Subpixels(cellX1);
-            var coordX2 = b.X - Subpixels(cellX2);
+        public void BlitTo (Surface surface) {
+            if (cellActive)
+                RetireActiveCell();
 
-            // trivial case; same Y
-            if (a.Y == b.Y) {
-                SetCurrentCell(cellX2, subpixelY);
-                return;
-            }
-
-            // trivial case; same cell
-            if (cellX1 == cellX2) {
-                var deltaY = b.Y - a.Y;
-                context.Area += (coordX1 + coordX2) * deltaY;
-                context.Coverage += deltaY;
-                return;
-            }
-
-            // long case: render a run of adjacent cells on the scanline
-            var p = (OnePixel - coordX1) * (b.Y - a.Y);
-            var first = OnePixel;
-            var increment = 1;
-            var dx = b.X - a.X;
-
-            if (dx < 0) {
-                p = coordX1 * (b.Y - a.Y);
-                first = 0;
-                increment = -1;
-                dx = -dx;
-            }
-
-            int delta, mod;
-            DivMod(p, dx, out delta, out mod);
-            context.Area += (coordX1 + first) * delta;
-            context.Coverage += delta;
-
-            cellX1 += increment;
-            SetCurrentCell(cellX1, subpixelY);
-            a.Y += delta;
-
-            if (cellX1 != cellX2) {
-                p = OnePixel * (b.Y - a.Y + delta);
-
-                int lift, rem;
-                DivMod(p, dx, out lift, out rem);
-
-                mod -= dx;
-                while (cellX1 != cellX2) {
-                    delta = lift;
-                    mod += rem;
-                    if (mod >= 0) {
-                        mod -= dx;
-                        delta++;
-                    }
-
-                    context.Area += OnePixel * delta;
-                    context.Coverage += delta;
-                    a.Y += delta;
-                    cellX1 += increment;
-                    SetCurrentCell(cellX1, subpixelY);
-                }
-            }
-
-            delta = b.Y - a.Y;
-            context.Area += (coordX2 + OnePixel - first) * delta;
-            context.Coverage += delta;
-        }
-
-        void Fill () {
-            if (context.CellCount == 0)
+            // if we rendered nothing, there's nothing to do
+            if (cellCount == 0)
                 return;
 
-            for (int y = 0; y < context.BandHeight; y++) {
+            this.surface = surface;
+            var sc = scanlineCount;
+            for (int y = 0; y < sc; y++) {
                 var x = 0;
                 var coverage = 0;
-                for (var cell = context.Scanlines[y]; cell != null; cell = cell->Next) {
-                    if (cell->X > x && coverage != 0)
-                        FillHLine(x, y, coverage * OnePixel * 2, cell->X - x);
+                var index = scanlines[y];
 
-                    coverage += cell->Coverage;
+                while (index != -1) {
+                    var cell = cells[index];
+                    if (cell.X > x && coverage != 0)
+                        FillHLine(x, y, coverage, cell.X - x);
 
-                    var area = coverage * OnePixel * 2 - cell->Area;
-                    if (area != 0 && cell->X >= 0)
-                        FillHLine(cell->X, y, area, 1);
+                    coverage += cell.Coverage;
 
-                    x = cell->X + 1;
+                    // cell.Area is in square subpixels, so we need to divide down
+                    var area = ((coverage << 9) - cell.Area) >> 9;
+                    if (area != 0 && cell.X >= 0)
+                        FillHLine(cell.X, y, area, 1);
+
+                    x = cell.X + 1;
+                    index = cell.Next;
                 }
 
                 if (coverage != 0)
-                    FillHLine(x, y, coverage * OnePixel * 2, context.Bounds.Width - x);
+                    FillHLine(x, y, coverage, maxX - minX - x);
             }
         }
 
-        void FillHLine (int x, int y, int area, int count) {
-            // compute coverage, depending on fill rules
-            var coverage = area >> (PixelBits * 2 + 1 - 8);
+        void FillHLine (int x, int y, int coverage, int length) {
             if (coverage < 0)
                 coverage = -coverage;
 
-            // TODO: even / odd fill
+            // non-zero winding rule
             if (coverage >= 256)
                 coverage = 255;
-
             if (coverage == 0)
                 return;
 
-            x += context.Bounds.MinX;
-            y += context.Bounds.MinY;
-
+            x += minX;
+            y += minY;
             x = Math.Min(x, 32767);
 
             var span = new Span {
                 X = x,
-                Length = count,
+                Length = length,
                 Coverage = coverage
             };
 
-            RenderSpan(y, &span, 1);
+            BlitSpans(y, &span, 1);
         }
 
-        void RenderSpan (int y, Span* spans, int count) {
+        void BlitSpans (int y, Span* spans, int count) {
             // find the scanline offset
             var bits = (byte*)surface.Bits - y * surface.Pitch;
             if (surface.Pitch >= 0)
@@ -423,14 +253,6 @@ namespace SlimFont {
                 if (coverage == 0)
                     continue;
 
-                if (spans->X + spans->Length > 27) {
-                    throw new Exception();
-                }
-
-                if (y >= 46) {
-                    throw new Exception();
-                }
-
                 // finally fill pixels
                 var p = bits + spans->X;
                 for (int i = 0; i < spans->Length; i++)
@@ -438,215 +260,162 @@ namespace SlimFont {
             }
         }
 
-        void Decompose (GlyphOutline outline) {
-            var contours = outline.ContourEndpoints;
-            var points = outline.Points;
-            var types = outline.PointTypes;
-            var firstIndex = 0;
+        void RenderScanline (int scanline, F24Dot8 x1, F24Dot8 y1, F24Dot8 x2, F24Dot8 y2) {
+            var startCell = x1.IntPart;
+            var endCell = x2.IntPart;
+            var fringeStart = (F24Dot8)x1.FracPart;
+            var fringeEnd = (F24Dot8)x2.FracPart;
 
-            for (int i = 0; i < contours.Length; i++) {
-                var lastIndex = contours[i];
-                var limit = lastIndex;
-                var pointIndex = firstIndex;
-                var type = types[pointIndex];
-                var start = points[pointIndex];
-                var end = points[lastIndex];
-                var control = start;
+            // trivial case; exact same Y, down to the subpixel
+            if (y1 == y2) {
+                SetCurrentCell(endCell, scanline);
+                return;
+            }
 
-                // contours can't start with a cubic control point.
-                if (type == PointType.Cubic)
+            // trivial case; within the same cell
+            if (startCell == endCell) {
+                var deltaY = (int)(y2 - y1);
+                activeArea += ((int)fringeStart + (int)fringeEnd) * deltaY;
+                activeCoverage += deltaY;
+                return;
+            }
+
+            // long case: render a run of adjacent cells on the scanline
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+
+            // check if we're going left or right
+            var dist = (F24Dot8.One - fringeStart) * dy;
+            var first = F24Dot8.One;
+            var increment = 1;
+            if ((int)dx < 0) {
+                dist = fringeStart * dy;
+                first = F24Dot8.Zero;
+                increment = -1;
+                dx = -dx;
+            }
+
+            // update the first cell
+            F24Dot8 delta, mod;
+            FixedMath.DivMod(dist, dx, out delta, out mod);
+            activeArea += (int)((fringeStart + first) * delta);
+            activeCoverage += (int)delta;
+
+            startCell += increment;
+            SetCurrentCell(startCell, scanline);
+            y1 += delta;
+
+            // update all covered cells
+            if (startCell != endCell) {
+                dist = F24Dot8.One * (y2 - y1 + delta);
+                F24Dot8 lift, rem;
+                FixedMath.DivMod(dist, dx, out lift, out rem);
+                mod -= dx;
+
+                while (startCell != endCell) {
+                    delta = lift;
+                    mod += rem;
+                    if ((int)mod >= 0) {
+                        mod -= dx;
+                        delta++;
+                    }
+
+                    activeArea += (int)(F24Dot8.One * delta);
+                    activeCoverage += (int)delta;
+                    y1 += delta;
+                    startCell += increment;
+                    SetCurrentCell(startCell, scanline);
+                }
+            }
+
+            // final cell
+            delta = y2 - y1;
+            activeArea += (int)((fringeEnd + F24Dot8.One - first) * delta);
+            activeCoverage += (int)delta;
+        }
+
+        void SetCurrentCell (int x, int y) {
+            // all cells on the left of the clipping region go to the minX - 1 position
+            y -= minY;
+            x = Math.Min(x, maxX);
+            x -= minX;
+            x = Math.Max(x, -1);
+
+            // moving to a new cell?
+            if (x != cellX || y != cellY) {
+                if (cellActive)
+                    RetireActiveCell();
+
+                activeArea = 0;
+                activeCoverage = 0;
+                cellX = x;
+                cellY = y;
+            }
+
+            cellActive = cellX < maxX && cellY < maxY;
+        }
+
+        void RetireActiveCell () {
+            // cells with no coverage have nothing to do
+            if ((activeArea | activeCoverage) == 0)
+                return;
+
+            // find the right spot to add or insert this cell
+            var x = cellX;
+            var y = cellY;
+            var cell = scanlines[y];
+            if (cell == -1 || cells[cell].X > x) {
+                // no cells at all on this scanline yet, or the first one
+                // is already beyond our X value, so grab a new one
+                cell = GetNewCell(x, cell);
+                scanlines[y] = cell;
+                return;
+            }
+
+            while (cells[cell].X != x) {
+                var next = cells[cell].Next;
+                if (next == -1 || cells[next].X > x) {
+                    // either we reached the end of the chain in this
+                    // scanline, or the next cell has a larger X
+                    next = GetNewCell(x, next);
+                    cells[cell].Next = next;
                     return;
-
-                if (type == PointType.Quadratic) {
-                    // if first point is a control point, try using the last point
-                    if (types[lastIndex] == PointType.OnCurve) {
-                        start = end;
-                        limit--;
-                    }
-                    else {
-                        // if they're both control points, start at the middle
-                        start.X = (start.X + end.X) / 2;
-                        start.Y = (start.Y + end.Y) / 2;
-                    }
-                    pointIndex--;
                 }
 
-                // let's draw this contour
-                MoveTo(start);
-
-                var needClose = true;
-                while (pointIndex < limit) {
-                    var point = points[++pointIndex];
-                    switch (types[pointIndex]) {
-                        case PointType.OnCurve:
-                            LineTo(point);
-                            break;
-
-                        case PointType.Quadratic:
-                            control = point;
-                            var done = false;
-                            while (pointIndex < limit) {
-                                var v = points[++pointIndex];
-                                var t = types[pointIndex];
-                                if (t == PointType.OnCurve) {
-                                    QuadraticCurveTo(control, v);
-                                    done = true;
-                                    break;
-                                }
-
-                                // this condition checks for garbage outlines
-                                if (t != PointType.Quadratic)
-                                    return;
-
-                                var middle = new Point((control.X + v.X) / 2, (control.Y + v.Y) / 2);
-                                QuadraticCurveTo(control, middle);
-                                control = v;
-                            }
-
-                            // if we hit this point, we're ready to close out the contour
-                            if (!done) {
-                                QuadraticCurveTo(control, start);
-                                needClose = false;
-                            }
-                            break;
-
-                        case PointType.Cubic:
-                            throw new NotSupportedException();
-                    }
-                }
-
-                if (needClose)
-                    LineTo(start);
-
-                firstIndex = lastIndex + 1;
-            }
-        }
-
-        static BoundingBox ComputeHighResBoundingBox (GlyphOutline outline, BoundingBox clip) {
-            var points = outline.Points;
-            if (points.Length < 1)
-                return BoundingBox.Empty;
-
-            var first = points[0];
-            var box = new BoundingBox {
-                MinX = first.X,
-                MaxX = first.X,
-                MinY = first.Y,
-                MaxY = first.Y
-            };
-
-            for (int i = 1; i < points.Length; i++) {
-                var point = points[i];
-                box.MinX = Math.Min(box.MinX, point.X);
-                box.MinY = Math.Min(box.MinY, point.Y);
-                box.MaxX = Math.Max(box.MaxX, point.X);
-                box.MaxY = Math.Max(box.MaxY, point.Y);
+                // move to next cell
+                cell = next;
             }
 
-            // truncate to integer pixels
-            box.MinX >>= 6;
-            box.MinY >>= 6;
-            box.MaxX = (box.MaxX + 63) >> 6;
-            box.MaxY = (box.MaxY + 63) >> 6;
-
-            // perform the intersection between the outline box and the clipping region
-            box.MinX = Math.Max(box.MinX, clip.MinX);
-            box.MinY = Math.Max(box.MinY, clip.MinY);
-            box.MaxX = Math.Min(box.MaxX, clip.MaxX);
-            box.MaxY = Math.Min(box.MaxY, clip.MaxY);
-
-            return box;
+            // we found a cell with identical coords, so adjust its coverage
+            cells[cell].Area += activeArea;
+            cells[cell].Coverage += activeCoverage;
         }
 
-        static BoundingBox ComputeBoundingBox (GlyphOutline outline) {
-            var points = outline.Points;
-            if (points.Length < 1)
-                return BoundingBox.Empty;
+        int GetNewCell (int x, int next) {
+            // resize our array if we've run out of room
+            if (cellCount == cells.Length)
+                Array.Resize(ref cells, (int)(cells.Length * 1.5));
 
-            var first = points[0];
-            var box = new BoundingBox {
-                MinX = first.X,
-                MaxX = first.X,
-                MinY = first.Y,
-                MaxY = first.Y
-            };
+            var index = cellCount++;
+            cells[index].X = x;
+            cells[index].Next = next;
+            cells[index].Area = activeArea;
+            cells[index].Coverage = activeCoverage;
 
-            for (int i = 1; i < points.Length; i++) {
-                var point = points[i];
-                box.MinX = Math.Min(box.MinX, point.X);
-                box.MinY = Math.Min(box.MinY, point.Y);
-                box.MaxX = Math.Max(box.MaxX, point.X);
-                box.MaxY = Math.Max(box.MaxY, point.Y);
-            }
-
-            // perform the intersection between the outline box and the clipping region
-            //box.MinX = Math.Max(box.MinX, clip.MinX);
-            //box.MinY = Math.Max(box.MinY, clip.MinY);
-            //box.MaxX = Math.Min(box.MaxX, clip.MaxX);
-            //box.MaxY = Math.Min(box.MaxY, clip.MaxY);
-
-            box.MinX = PixFloor(box.MinX);
-            box.MinY = PixFloor(box.MinY);
-            box.MaxX = PixCeil(box.MaxX);
-            box.MaxY = PixCeil(box.MaxY);
-
-            return box;
+            return index;
         }
 
-        static void TranslateOutline (GlyphOutline outline, int offsetX, int offsetY) {
-            var points = outline.Points;
-            for (int i = 0; i < points.Length; i++) {
-                points[i].X += offsetX;
-                points[i].Y += offsetY;
-            }
-        }
-
-        // methods for working with fixed-point pixel positions
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static Point Upscale (Point p) => new Point(Upscale(p.X), Upscale(p.Y));
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Upscale (int x) => x << (PixelBits - 6);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Downscale (int x) => x >> (PixelBits - 6);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Truncate (int x) => x >> PixelBits;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Subpixels (int x) => x << PixelBits;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Floor (int x) => x & -OnePixel;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Ceiling (int x) => (x + OnePixel - 1) & -OnePixel;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int Round (int x) => (x + OnePixel / 2) & -OnePixel;
-
-        static void DivMod (int dividend, int divisor, out int quotient, out int remainder) {
-            quotient = dividend / divisor;
-            remainder = dividend % divisor;
-            if (remainder < 0) {
-                quotient--;
-                remainder += divisor;
-            }
-        }
-
-        static int PixFloor (int x) => x & ~63;
-        static int PixCeil (int x) => PixFloor(x + 63);
-
-        struct Band {
-            public int Min;
-            public int Max;
-        }
+        //static void TranslateOutline (GlyphOutline outline, int offsetX, int offsetY) {
+        //    var points = outline.Points;
+        //    for (int i = 0; i < points.Length; i++) {
+        //        points[i].X += offsetX;
+        //        points[i].Y += offsetY;
+        //    }
+        //}
 
         struct Cell {
-            public Cell* Next;
             public int X;
+            public int Next;
             public int Coverage;
             public int Area;
         }
@@ -656,48 +425,5 @@ namespace SlimFont {
             public int Length;
             public int Coverage;
         }
-
-        class Context {
-            public Cell* Cells;
-            public Cell** Scanlines;
-            public BoundingBox Bounds;
-            public Point Coord;
-            public Point Subpixel;
-            public int Area;
-            public int Coverage;
-            public int LastSubpixelY;
-            public int CellCount;
-            public int BandHeight;
-            public bool HasCell;
-
-            public void Clear () {
-            }
-        }
-
-        const int MaxBands = 39;
-        const int CellBufferSize = 1024;
-        const int BandSize = CellBufferSize >> 3;
-        const int PixelBits = 8;
-        const int OnePixel = 1 << PixelBits;
-    }
-
-    public struct Surface {
-        public IntPtr Bits;
-        public int Width;
-        public int Height;
-        public int Pitch;
-    }
-
-    struct BoundingBox {
-        public static readonly BoundingBox Empty = new BoundingBox();
-
-        public int MinX;
-        public int MinY;
-        public int MaxX;
-        public int MaxY;
-
-        public int Width => MaxX - MinX;
-        public int Height => MaxY - MinY;
-        public int Area => Width * Height;
     }
 }
