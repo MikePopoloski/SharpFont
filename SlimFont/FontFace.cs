@@ -39,11 +39,15 @@ namespace SlimFont {
             if (points.Length <= 0 || contours.Length <= 0)
                 return;
 
-            // TODO: offset, scaling, and hinting
-
-            // compute control box and round it down into integer pixels
-            // also clip against the bounds of the passed in target surface
+            // compute control box; we'll shift the glyph so that it's rendered
+            // with its bottom corner at the bottom left of the target surface
             var cbox = FixedMath.ComputeControlBox(points);
+            var shiftX = -cbox.MinX;
+            var shiftY = -cbox.MinY;
+
+            // shift down into integer pixel coordinates and clip
+            // against the bounds of the passed in target surface
+            cbox = FixedMath.Translate(cbox, shiftX, shiftY);
             var minX = Math.Max(cbox.MinX.IntPart, 0);
             var minY = Math.Max(cbox.MinY.IntPart, 0);
             var maxX = Math.Min(cbox.MaxX.IntPart, surface.Width);
@@ -56,6 +60,7 @@ namespace SlimFont {
             // prep the renderer
             renderer.Clear();
             renderer.SetBounds(minX, minY, maxX, maxY);
+            renderer.SetOffset(shiftX, shiftY);
 
             // walk each contour of the outline and render it
             var firstIndex = 0;

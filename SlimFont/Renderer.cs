@@ -1,9 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SlimFont {
     // handles rasterizing curves to a bitmap
@@ -11,7 +6,11 @@ namespace SlimFont {
     unsafe class Renderer {
         Surface surface;                // the surface we're currently rendering to
         int[] scanlines;                // one scanline per Y, points into cell buffer
+        int[] curveLevels;
+        V24Dot8[] bezierArc;            // points on a bezier arc
         Cell[] cells;
+        F26Dot6 shiftX, shiftY;         // the amount to translate incoming points
+        V24Dot8 subpixelPos;            // subpixel position of active point
         int activeArea;                 // running total of the active cell's area
         int activeCoverage;             // ditto for coverage
         int cellX, cellY;               // pixel position of the active cell
@@ -20,11 +19,12 @@ namespace SlimFont {
         int minX, minY;                 // bounds of the glyph surface, in plain old pixels
         int maxX, maxY;
         bool cellActive;                // whether the current cell has active data
-        F24Dot8 subpixelX, subpixelY;   // subpixel position of active point
 
         public Renderer () {
             cells = new Cell[1024];
             scanlines = new int[128];
+            curveLevels = new int[32];
+            bezierArc = new V24Dot8[curveLevels.Length * 3 + 1];
         }
 
         public void Clear () {
@@ -49,18 +49,20 @@ namespace SlimFont {
                 scanlines[i] = -1;
         }
 
+        public void SetOffset (F26Dot6 shiftX, F26Dot6 shiftY) {
+            this.shiftX = shiftX;
+            this.shiftY = shiftY;
+        }
+
         public void MoveTo (Point point) {
             // record current cell, if any
             if (cellActive)
                 RetireActiveCell();
 
-            // start at the new position
-            subpixelX = new F24Dot8(point.X);
-            subpixelY = new F24Dot8(point.Y);
-
             // calculate cell coordinates
-            cellX = Math.Max(minX - 1, Math.Min(subpixelX.IntPart, maxX)) - minX;
-            cellY = subpixelY.IntPart - minY;
+            subpixelPos = new V24Dot8(point.X + shiftX, point.Y + shiftY);
+            cellX = Math.Max(minX - 1, Math.Min(subpixelPos.X.IntPart, maxX)) - minX;
+            cellY = subpixelPos.Y.IntPart - minY;
 
             // activate if this is a valid cell location
             cellActive = cellX < maxX && cellY < maxY;
@@ -69,121 +71,51 @@ namespace SlimFont {
         }
 
         public void LineTo (Point point) {
-            var targetX = new F24Dot8(point.X);
-            var targetY = new F24Dot8(point.Y);
-
-            // figure out which scanlines this line crosses
-            var startScanline = subpixelY.IntPart;
-            var endScanline = targetY.IntPart;
-
-            // vertical clipping
-            if (Math.Min(startScanline, endScanline) >= maxY ||
-                Math.Max(startScanline, endScanline) < minY) {
-                // just save this position since it's outside our bounds and continue
-                subpixelX = targetX;
-                subpixelY = targetY;
-                return;
-            }
-
-            // render the line
-            var dx = targetX - subpixelX;
-            var dy = targetY - subpixelY;
-            var fringeStart = subpixelY.FracPart;
-            var fringeEnd = targetY.FracPart;
-
-            if (startScanline == endScanline) {
-                // this is a horizontal line
-                RenderScanline(startScanline, subpixelX, fringeStart, targetX, fringeEnd);
-            }
-            else if ((int)dx == 0) {
-                // this is a vertical line
-                var xarea = (int)subpixelX.FracPart << 1;
-                var x = subpixelX.IntPart;
-
-                // check if we're scanning up or down
-                var first = F24Dot8.One;
-                var increment = 1;
-                if ((int)dy < 0) {
-                    first = F24Dot8.Zero;
-                    increment = -1;
-                }
-
-                // first cell fringe
-                var deltaY = (int)(first - fringeStart);
-                activeArea += xarea * deltaY;
-                activeCoverage += deltaY;
-                startScanline += increment;
-                SetCurrentCell(x, startScanline);
-
-                // any other cells covered by the line
-                deltaY = (int)(first + first - F24Dot8.One);
-                var area = xarea * deltaY;
-                while (startScanline != endScanline) {
-                    activeArea += area;
-                    activeCoverage += deltaY;
-                    startScanline += increment;
-                    SetCurrentCell(x, startScanline);
-                }
-
-                // ending fringe
-                deltaY = (int)(fringeEnd - F24Dot8.One + first);
-                activeArea += xarea * deltaY;
-                activeCoverage += deltaY;
-            }
-            else {
-                // diagonal line
-                // check if we're scanning up or down
-                var dist = (F24Dot8.One - fringeStart) * dx;
-                var first = F24Dot8.One;
-                var increment = 1;
-                if ((int)dy < 0) {
-                    dist = fringeStart * dx;
-                    first = F24Dot8.Zero;
-                    increment = -1;
-                    dy = -dy;
-                }
-
-                // render the first scanline
-                F24Dot8 delta, mod;
-                FixedMath.DivMod(dist, dy, out delta, out mod);
-
-                var x = subpixelX + delta;
-                RenderScanline(startScanline, subpixelX, fringeStart, x, first);
-                startScanline += increment;
-                SetCurrentCell(x.IntPart, startScanline);
-
-                // step along the line
-                if (startScanline != endScanline) {
-                    F24Dot8 lift, rem;
-                    FixedMath.DivMod(F24Dot8.One * dx, dy, out lift, out rem);
-                    mod -= dy;
-
-                    while (startScanline != endScanline) {
-                        delta = lift;
-                        mod += rem;
-                        if ((int)mod >= 0) {
-                            mod -= dy;
-                            delta++;
-                        }
-
-                        var x2 = x + delta;
-                        RenderScanline(startScanline, x, F24Dot8.One - first, x2, first);
-                        x = x2;
-
-                        startScanline += increment;
-                        SetCurrentCell(x.IntPart, startScanline);
-                    }
-                }
-
-                // last scanline
-                RenderScanline(startScanline, x, F24Dot8.One - first, targetX, fringeEnd);
-            }
-
-            subpixelX = targetX;
-            subpixelY = targetY;
+            RenderLine(new V24Dot8(point.X + shiftX, point.Y + shiftY));
         }
 
         public void QuadraticCurveTo (Point control, Point point) {
+            var levels = curveLevels;
+            var arc = bezierArc;
+            arc[0] = new V24Dot8(point.X + shiftX, point.Y + shiftY);
+            arc[1] = new V24Dot8(control.X + shiftX, control.Y + shiftY);
+            arc[2] = subpixelPos;
+
+            var delta = FixedMath.Abs(arc[2] + arc[0] - 2 * arc[1]);
+            var dx = (int)delta.X;
+            if (dx < (int)delta.Y)
+                dx = (int)delta.Y;
+
+            int level = 0;
+            do {
+                dx >>= 2;
+                level++;
+            } while (dx > (int)F24Dot8.One / 4);
+
+            int top = 0;
+            int arcIndex = 0;
+            levels[0] = level;
+
+            while (top >= 0) {
+                level = levels[top];
+                if (level > 0) {
+                    // split the arc
+                    arc[arcIndex + 4] = arc[arcIndex + 2];
+                    var b = arc[arcIndex + 1];
+                    var a = arc[arcIndex + 3] = (arc[arcIndex + 2] + b) / 2;
+                    b = arc[arcIndex + 1] = (arc[arcIndex] + b) / 2;
+                    arc[arcIndex + 2] = (a + b) / 2;
+
+                    arcIndex += 2;
+                    top++;
+                    levels[top] = levels[top - 1] = level - 1;
+                }
+                else {
+                    RenderLine(arc[arcIndex]);
+                    top--;
+                    arcIndex -= 2;
+                }
+            }
         }
 
         public void BlitTo (Surface surface) {
@@ -220,6 +152,115 @@ namespace SlimFont {
                 if (coverage != 0)
                     FillHLine(x, y, coverage, maxX - minX - x);
             }
+        }
+
+        void RenderLine (V24Dot8 target) {
+            // figure out which scanlines this line crosses
+            var startScanline = subpixelPos.Y.IntPart;
+            var endScanline = target.Y.IntPart;
+
+            // vertical clipping
+            if (Math.Min(startScanline, endScanline) >= maxY ||
+                Math.Max(startScanline, endScanline) < minY) {
+                // just save this position since it's outside our bounds and continue
+                subpixelPos = target;
+                return;
+            }
+
+            // render the line
+            var vector = target - subpixelPos;
+            var fringeStart = subpixelPos.Y.FracPart;
+            var fringeEnd = target.Y.FracPart;
+
+            if (startScanline == endScanline) {
+                // this is a horizontal line
+                RenderScanline(startScanline, subpixelPos.X, fringeStart, target.X, fringeEnd);
+            }
+            else if ((int)vector.X == 0) {
+                // this is a vertical line
+                var xarea = (int)subpixelPos.X.FracPart << 1;
+                var x = subpixelPos.X.IntPart;
+
+                // check if we're scanning up or down
+                var first = F24Dot8.One;
+                var increment = 1;
+                if ((int)vector.Y < 0) {
+                    first = F24Dot8.Zero;
+                    increment = -1;
+                }
+
+                // first cell fringe
+                var deltaY = (int)(first - fringeStart);
+                activeArea += xarea * deltaY;
+                activeCoverage += deltaY;
+                startScanline += increment;
+                SetCurrentCell(x, startScanline);
+
+                // any other cells covered by the line
+                deltaY = (int)(first + first - F24Dot8.One);
+                var area = xarea * deltaY;
+                while (startScanline != endScanline) {
+                    activeArea += area;
+                    activeCoverage += deltaY;
+                    startScanline += increment;
+                    SetCurrentCell(x, startScanline);
+                }
+
+                // ending fringe
+                deltaY = (int)(fringeEnd - F24Dot8.One + first);
+                activeArea += xarea * deltaY;
+                activeCoverage += deltaY;
+            }
+            else {
+                // diagonal line
+                // check if we're scanning up or down
+                var dist = (F24Dot8.One - fringeStart) * vector.X;
+                var first = F24Dot8.One;
+                var increment = 1;
+                if ((int)vector.Y < 0) {
+                    dist = fringeStart * vector.X;
+                    first = F24Dot8.Zero;
+                    increment = -1;
+                    vector.Y = -vector.Y;
+                }
+
+                // render the first scanline
+                F24Dot8 delta, mod;
+                FixedMath.DivMod(dist, vector.Y, out delta, out mod);
+
+                var x = subpixelPos.X + delta;
+                RenderScanline(startScanline, subpixelPos.X, fringeStart, x, first);
+                startScanline += increment;
+                SetCurrentCell(x.IntPart, startScanline);
+
+                // step along the line
+                if (startScanline != endScanline) {
+                    F24Dot8 lift, rem;
+                    FixedMath.DivMod(F24Dot8.One * vector.X, vector.Y, out lift, out rem);
+                    mod -= vector.Y;
+
+                    while (startScanline != endScanline) {
+                        delta = lift;
+                        mod += rem;
+                        if ((int)mod >= 0) {
+                            mod -= vector.Y;
+                            delta++;
+                        }
+
+                        var x2 = x + delta;
+                        RenderScanline(startScanline, x, F24Dot8.One - first, x2, first);
+                        x = x2;
+
+                        startScanline += increment;
+                        SetCurrentCell(x.IntPart, startScanline);
+                    }
+                }
+
+                // last scanline
+                RenderScanline(startScanline, x, F24Dot8.One - first, target.X, fringeEnd);
+            }
+
+            subpixelPos = target;
         }
 
         void FillHLine (int x, int y, int coverage, int length) {
@@ -407,14 +448,6 @@ namespace SlimFont {
 
             return index;
         }
-
-        //static void TranslateOutline (GlyphOutline outline, int offsetX, int offsetY) {
-        //    var points = outline.Points;
-        //    for (int i = 0; i < points.Length; i++) {
-        //        points[i].X += offsetX;
-        //        points[i].Y += offsetY;
-        //    }
-        //}
 
         struct Cell {
             public int X;

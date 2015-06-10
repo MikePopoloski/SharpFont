@@ -62,7 +62,7 @@ namespace SlimFont {
         public static F26Dot6 operator +(F26Dot6 lhs, F26Dot6 rhs) => (F26Dot6)(lhs.value + rhs.value);
         public static F26Dot6 operator -(F26Dot6 lhs, F26Dot6 rhs) => (F26Dot6)(lhs.value - rhs.value);
         public static F26Dot6 operator /(F26Dot6 lhs, int rhs) => (F26Dot6)(lhs.value / rhs);
-
+        public static F26Dot6 operator -(F26Dot6 v) => (F26Dot6)(-v.value);
     }
 
     // Fixed point: 24.8
@@ -89,6 +89,8 @@ namespace SlimFont {
         public static F24Dot8 operator +(F24Dot8 lhs, F24Dot8 rhs) => (F24Dot8)(lhs.value + rhs.value);
         public static F24Dot8 operator -(F24Dot8 lhs, F24Dot8 rhs) => (F24Dot8)(lhs.value - rhs.value);
         public static F24Dot8 operator *(F24Dot8 lhs, F24Dot8 rhs) => (F24Dot8)(lhs.value * rhs.value);
+        public static F24Dot8 operator *(int lhs, F24Dot8 rhs) => (F24Dot8)(lhs * rhs.value);
+        public static F24Dot8 operator /(F24Dot8 lhs, int rhs) => (F24Dot8)(lhs.value / rhs);
         public static F24Dot8 operator -(F24Dot8 v) => (F24Dot8)(-v.value);
         public static F24Dot8 operator ++(F24Dot8 v) => (F24Dot8)(v.value + 1);
 
@@ -97,6 +99,29 @@ namespace SlimFont {
 
         public static readonly F24Dot8 Zero = new F24Dot8(0);
         public static readonly F24Dot8 One = new F24Dot8(1 << 8);
+    }
+
+    // 2D vector of 24.8 fixed point numbers
+    struct V24Dot8 {
+        public F24Dot8 X;
+        public F24Dot8 Y;
+
+        public V24Dot8 (F24Dot8 x, F24Dot8 y) {
+            X = x;
+            Y = y;
+        }
+
+        public V24Dot8 (F26Dot6 x, F26Dot6 y) {
+            X = new F24Dot8(x);
+            Y = new F24Dot8(y);
+        }
+
+        public override string ToString () => $"{X}, {Y}";
+
+        public static V24Dot8 operator +(V24Dot8 lhs, V24Dot8 rhs) => new V24Dot8(lhs.X + rhs.X, lhs.Y + rhs.Y);
+        public static V24Dot8 operator -(V24Dot8 lhs, V24Dot8 rhs) => new V24Dot8(lhs.X - rhs.X, lhs.Y - rhs.Y);
+        public static V24Dot8 operator *(int lhs, V24Dot8 rhs) => new V24Dot8(lhs * rhs.X, lhs * rhs.Y);
+        public static V24Dot8 operator /(V24Dot8 lhs, int rhs) => new V24Dot8(lhs.X / rhs, lhs.Y / rhs);
     }
 
     struct Matrix2x2 {
@@ -133,11 +158,11 @@ namespace SlimFont {
     static class FixedMath {
         public static F26Dot6 Floor (F26Dot6 v) => (F26Dot6)((int)v & ~0x3f);
         public static F26Dot6 Ceiling (F26Dot6 v) => Floor((F26Dot6)((int)v + 0x3f));
-
-        public static F24Dot8 Floor (F24Dot8 v) => (F24Dot8)((int)v & ~0xff);
-
         public static F26Dot6 Min (F26Dot6 a, F26Dot6 b) => (int)a < (int)b ? a : b;
         public static F26Dot6 Max (F26Dot6 a, F26Dot6 b) => (int)a > (int)b ? a : b;
+        public static F24Dot8 Floor (F24Dot8 v) => (F24Dot8)((int)v & ~0xff);
+        public static F24Dot8 Abs (F24Dot8 v) => (F24Dot8)Math.Abs((int)v);
+        public static V24Dot8 Abs (V24Dot8 v) => new V24Dot8(Abs(v.X), Abs(v.Y));
 
         public static void DivMod (F24Dot8 dividend, F24Dot8 divisor, out F24Dot8 quotient, out F24Dot8 remainder) {
             var q = (int)dividend / (int)divisor;
@@ -149,6 +174,15 @@ namespace SlimFont {
 
             quotient = new F24Dot8(q);
             remainder = new F24Dot8(r);
+        }
+
+        public static BoundingBox Translate (BoundingBox bbox, F26Dot6 shiftX, F26Dot6 shiftY) {
+            return new BoundingBox {
+                MinX = bbox.MinX + shiftX,
+                MinY = bbox.MinY + shiftY,
+                MaxX = bbox.MaxX + shiftX,
+                MaxY = bbox.MaxY + shiftY
+            };
         }
 
         public static BoundingBox ComputeControlBox (Point[] points) {
