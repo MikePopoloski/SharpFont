@@ -31,7 +31,7 @@ namespace SlimFont {
             faceOffsets = ReadTTCHeader(reader) ?? new[] { 0u };
         }
 
-        public FontFace LoadFace (int faceIndex = 0) {
+        public Typeface LoadFace (int faceIndex = 0) {
             if (faceIndex >= faceOffsets.Length)
                 throw new ArgumentOutOfRangeException(nameof(faceIndex));
 
@@ -159,7 +159,7 @@ namespace SlimFont {
 
             // build the final font face; all data has been copied
             // out of the font file so we can close it after this
-            return new FontFace(
+            return new Typeface(
                 cellAscent, cellDescent, lineHeight, os2Data.XHeight, os2Data.CapHeight,
                 underlineSize, underlinePosition, strikeoutSize, strikeoutPosition,
                 faceHeader.IsFixedPitch, os2Data.Weight, os2Data.Stretch, os2Data.Style,

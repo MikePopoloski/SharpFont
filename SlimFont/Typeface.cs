@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace SlimFont {
-    public class FontFace {
+    public class Typeface {
         Renderer renderer = new Renderer();
         GlyphData[] glyphs;
         MetricsEntry[] hmetrics;
@@ -38,7 +38,7 @@ namespace SlimFont {
         public FontStretch Stretch => stretch;
         public FontStyle Style => style;
 
-        internal FontFace (
+        internal Typeface (
             int cellAscent, int cellDescent, int lineHeight, int xHeight, int capHeight, int underlineSize,
             int underlinePosition, int strikeoutSize, int strikeoutPosition, bool isFixedWidth,
             FontWeight weight, FontStretch stretch, FontStyle style, GlyphData[] glyphs,
