@@ -7,29 +7,73 @@ using System.Threading.Tasks;
 namespace SlimFont {
     public class FontFace {
         Renderer renderer = new Renderer();
+        GlyphData[] glyphs;
+        int cellAscent;
+        int cellDescent;
+        int lineHeight;
+        int xHeight;
+        int capHeight;
+        int underlineSize;
+        int underlinePosition;
+        int strikeoutSize;
+        int strikeoutPosition;
+        bool isFixedWidth;
+        FontWeight weight;
+        FontStretch stretch;
+        FontStyle style;
 
-        internal GlyphData[] Glyphs;
+        public int CellAscent => cellAscent;
+        public int CellDescent => cellDescent;
+        public int LineHeight => lineHeight;
+        public int XHeight => xHeight;
+        public int CapHeight => capHeight;
+        public int UnderlineSize => underlineSize;
+        public int UnderlinePosition => underlinePosition;
+        public int StrikeoutSize => strikeoutSize;
+        public int StrikeoutPosition => strikeoutPosition;
+        public bool IsFixedWidth => isFixedWidth;
+        public FontWeight Weight => weight;
+        public FontStretch Stretch => stretch;
+        public FontStyle Style => style;
 
-        internal FontFace () {
+        internal FontFace (
+            int cellAscent, int cellDescent, int lineHeight, int xHeight, int capHeight, int underlineSize,
+            int underlinePosition, int strikeoutSize, int strikeoutPosition, bool isFixedWidth,
+            FontWeight weight, FontStretch stretch, FontStyle style, GlyphData[] glyphs
+        ) {
+            this.cellAscent = cellAscent;
+            this.cellDescent = cellDescent;
+            this.lineHeight = lineHeight;
+            this.xHeight = xHeight;
+            this.capHeight = capHeight;
+            this.underlineSize = underlineSize;
+            this.underlinePosition = underlinePosition;
+            this.strikeoutSize = strikeoutSize;
+            this.strikeoutPosition = strikeoutPosition;
+            this.isFixedWidth = isFixedWidth;
+            this.weight = weight;
+            this.stretch = stretch;
+            this.style = style;
+            this.glyphs = glyphs;
         }
 
         public GlyphMetrics GetGlyphMetrics (int glyphIndex) {
-            if (glyphIndex < 0 || glyphIndex >= Glyphs.Length)
+            if (glyphIndex < 0 || glyphIndex >= glyphs.Length)
                 throw new ArgumentOutOfRangeException(nameof(glyphIndex));
 
             // compute the control box
-            var glyphData = Glyphs[glyphIndex];
+            var glyphData = glyphs[glyphIndex];
             var cbox = FixedMath.ComputeControlBox(glyphData.Outline.Points);
 
             return default(GlyphMetrics);
         }
 
         public void RenderGlyph (int glyphIndex, Surface surface) {
-            if (glyphIndex < 0 || glyphIndex >= Glyphs.Length)
+            if (glyphIndex < 0 || glyphIndex >= glyphs.Length)
                 throw new ArgumentOutOfRangeException(nameof(glyphIndex));
 
             // get out all the junk we care about
-            var glyphData = Glyphs[glyphIndex];
+            var glyphData = glyphs[glyphIndex];
             var outline = glyphData.Outline;
             var points = outline.Points;
             var contours = outline.ContourEndpoints;
@@ -160,5 +204,38 @@ namespace SlimFont {
         public int Width;
         public int Height;
         public int Pitch;
+    }
+
+    public enum FontWeight {
+        Unknown = 0,
+        Thin = 100,
+        ExtraLight = 200,
+        Light = 300,
+        Normal = 400,
+        Medium = 500,
+        SemiBold = 600,
+        Bold = 700,
+        ExtraBold = 800,
+        Black = 900
+    }
+
+    public enum FontStretch {
+        Unknown,
+        UltraCondensed,
+        ExtraCondensed,
+        Condensed,
+        SemiCondensed,
+        Normal,
+        SemiExpanded,
+        Expanded,
+        ExtraExpanded,
+        UltraExpanded
+    }
+
+    public enum FontStyle {
+        Regular,
+        Bold,
+        Italic,
+        Oblique
     }
 }

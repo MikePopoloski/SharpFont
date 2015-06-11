@@ -7,19 +7,23 @@ using System.Threading.Tasks;
 namespace SlimFont {
     // raw SFNT container table reading routines
     unsafe static class SfntTables {
-        public static void ReadHead (DataReader reader, ref FaceHeader header) {
+        public static void ReadHead (DataReader reader, out FaceHeader header) {
             // 'head' table contains global information for the font face
             // we only care about a few fields in it
             reader.Skip(sizeof(int) * 4);   // version, revision, checksum, magic number
 
-            header.Flags = (HeadFlags)reader.ReadUInt16BE();
-            header.UnitsPerEm = reader.ReadUInt16BE();
+            var result = new FaceHeader {
+                Flags = (HeadFlags)reader.ReadUInt16BE(),
+                UnitsPerEm = reader.ReadUInt16BE()
+            };
 
             // skip over created and modified times, bounding box,
             // deprecated style bits, direction hints, and size hints
             reader.Skip(sizeof(long) * 2 + sizeof(short) * 7);
 
-            header.IndexFormat = (IndexFormat)reader.ReadInt16BE();
+            result.IndexFormat = (IndexFormat)reader.ReadInt16BE();
+
+            header = result;
         }
 
         public static void ReadPost (DataReader reader, ref FaceHeader header) {
@@ -29,6 +33,70 @@ namespace SlimFont {
             header.UnderlinePosition = reader.ReadInt16BE();
             header.UnderlineThickness = reader.ReadInt16BE();
             header.IsFixedPitch = reader.ReadUInt32BE() != 0;
+        }
+
+        public static MetricsHeader ReadMetricsHeader (DataReader reader) {
+            // skip over version
+            reader.Skip(sizeof(int));
+
+            var header = new MetricsHeader {
+                Ascender = reader.ReadInt16BE(),
+                Descender = reader.ReadInt16BE(),
+                LineGap = reader.ReadInt16BE()
+            };
+
+            // skip over advanceWidthMax, minLsb, minRsb, xMaxExtent, caretSlopeRise,
+            // caretSlopeRun, caretOffset, 4 reserved entries, and metricDataFormat
+            reader.Skip(sizeof(short) * 12);
+
+            header.MetricCount = reader.ReadUInt16BE();
+            return header;
+        }
+
+        public static void ReadOS2 (DataReader reader, out OS2Data os2Data) {
+            // skip over version, xAvgCharWidth
+            reader.Skip(sizeof(short) * 2);
+
+            var result = new OS2Data {
+                Weight = (FontWeight)reader.ReadUInt16BE(),
+                Stretch = (FontStretch)reader.ReadUInt16BE()
+            };
+
+            // skip over fsType, ySubscriptXSize, ySubscriptYSize, ySubscriptXOffset, ySubscriptYOffset,
+            // ySuperscriptXSize, ySuperscriptYSize, ySuperscriptXOffset, ySuperscriptXOffset
+            reader.Skip(sizeof(short) * 9);
+
+            result.StrikeoutSize = reader.ReadInt16BE();
+            result.StrikeoutPosition = reader.ReadInt16BE();
+
+            // skip over sFamilyClass, panose[10], ulUnicodeRange1-4, achVendID[4]
+            reader.Skip(sizeof(short) + sizeof(int) * 4 + 14);
+
+            // check various style flags
+            var fsSelection = (FsSelectionFlags)reader.ReadUInt16BE();
+            result.Style = (fsSelection & FsSelectionFlags.Italic) != 0 ? FontStyle.Italic :
+                            (fsSelection & FsSelectionFlags.Bold) != 0 ? FontStyle.Bold :
+                            (fsSelection & FsSelectionFlags.Oblique) != 0 ? FontStyle.Oblique :
+                            FontStyle.Regular;
+            result.IsWWSFont = (fsSelection & FsSelectionFlags.WWS) != 0;
+            result.UseTypographicMetrics = (fsSelection & FsSelectionFlags.UseTypoMetrics) != 0;
+
+            // skip over usFirstCharIndex, usLastCharIndex
+            reader.Skip(sizeof(short) * 2);
+
+            result.TypographicAscender = reader.ReadInt16BE();
+            result.TypographicDescender = reader.ReadInt16BE();
+            result.TypographicLineGap = reader.ReadInt16BE();
+            result.WinAscent = reader.ReadUInt16BE();
+            result.WinDescent = reader.ReadUInt16BE();
+
+            // skip over ulCodePageRange1-2
+            reader.Skip(sizeof(int) * 2);
+
+            result.XHeight = reader.ReadInt16BE();
+            result.CapHeight = reader.ReadInt16BE();
+
+            os2Data = result;
         }
 
         public static void ReadMaxp (DataReader reader, ref FaceHeader header) {
@@ -217,6 +285,30 @@ namespace SlimFont {
         public int GlyphCount;
     }
 
+    struct MetricsHeader {
+        public int Ascender;
+        public int Descender;
+        public int LineGap;
+        public int MetricCount;
+    }
+
+    struct OS2Data {
+        public FontWeight Weight;
+        public FontStretch Stretch;
+        public FontStyle Style;
+        public int StrikeoutSize;
+        public int StrikeoutPosition;
+        public int TypographicAscender;
+        public int TypographicDescender;
+        public int TypographicLineGap;
+        public int WinAscent;
+        public int WinDescent;
+        public bool UseTypographicMetrics;
+        public bool IsWWSFont;
+        public int XHeight;
+        public int CapHeight;
+    }
+
     struct GlyphHeader {
         public short ContourCount;
         public short MinX;
@@ -276,6 +368,16 @@ namespace SlimFont {
         SizeDependentInstructions = 0x4,
         IntegerPpem = 0x8,
         InstructionsAlterAdvance = 0x10
+    }
+
+    [Flags]
+    enum FsSelectionFlags {
+        Italic = 0x1,
+        Bold = 0x20,
+        Regular = 0x40,
+        UseTypoMetrics = 0x80,
+        WWS = 0x100,
+        Oblique = 0x200
     }
 
     enum IndexFormat {

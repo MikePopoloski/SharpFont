@@ -55,12 +55,10 @@ namespace SlimFont {
                 };
             }
 
-            var fontFace = new FontFace();
-
             // read the face header
-            var faceHeader = new FaceHeader();
             SeekToTable(reader, records, FourCC.Head, required: true);
-            SfntTables.ReadHead(reader, ref faceHeader);
+            FaceHeader faceHeader;
+            SfntTables.ReadHead(reader, out faceHeader);
             if (faceHeader.UnitsPerEm == 0)
                 Error("Invalid 'head' table.");
 
@@ -68,7 +66,16 @@ namespace SlimFont {
             if (SeekToTable(reader, records, FourCC.Post))
                 SfntTables.ReadPost(reader, ref faceHeader);
 
-            // 'OS/2' has a bunch of metrics in it
+            // horizontal metrics header
+            SeekToTable(reader, records, FourCC.Hhea, required: true);
+            var hMetrics = SfntTables.ReadMetricsHeader(reader);
+
+            // OS/2 table has even more metrics
+            SeekToTable(reader, records, FourCC.OS_2, required: true);
+            OS2Data os2Data;
+            SfntTables.ReadOS2(reader, out os2Data);
+
+            // TODO: HasOutline based on existence of glyf or CFF tables
 
             // TODO: metrics tables
 
@@ -76,13 +83,12 @@ namespace SlimFont {
 
             // TODO: friendly names
 
-            // TODO: style flags
-
             // TODO: embedded bitmaps
 
             // TODO: cmap
 
             // load glyphs if we have them
+            GlyphData[] glyphTable = null;
             if (SeekToTable(reader, records, FourCC.Glyf)) {
                 // first load the max position table; it will tell us how many glyphs we have
                 SeekToTable(reader, records, FourCC.Maxp, required: true);
@@ -98,16 +104,49 @@ namespace SlimFont {
                 // read in all glyphs
                 SeekToTable(reader, records, FourCC.Glyf);
                 var glyfOffset = reader.Position;
-                var glyphTable = new GlyphData[faceHeader.GlyphCount];
+                glyphTable = new GlyphData[faceHeader.GlyphCount];
                 for (int i = 0; i < glyphTable.Length; i++)
                     ReadGlyph(reader, i, 0, glyphTable, glyfOffset, loca);
-
-                fontFace.Glyphs = glyphTable;
             }
+
+            // metrics calculations: if the UseTypographicMetrics flag is set, then
+            // we should use the sTypo*** data for line height calculation
+            int cellAscent, cellDescent, lineHeight;
+            if (os2Data.UseTypographicMetrics) {
+                // include the line gap in the ascent so that
+                // white space is distributed above the line
+                cellAscent = os2Data.TypographicAscender + os2Data.TypographicLineGap;
+                cellDescent = -os2Data.TypographicDescender;
+                lineHeight = os2Data.TypographicAscender + os2Data.TypographicLineGap - os2Data.TypographicDescender;
+            }
+            else {
+                // otherwise, we need to guess at whether hhea data or os/2 data has better line spacing
+                // this is the recommended procedure based on the OS/2 spec extra notes
+                cellAscent = os2Data.WinAscent;
+                cellDescent = Math.Abs(os2Data.WinDescent);
+                lineHeight = Math.Max(
+                    Math.Max(0, hMetrics.LineGap) + hMetrics.Ascender + Math.Abs(hMetrics.Descender),
+                    cellAscent + cellDescent
+                );
+            }
+
+            // give sane defaults for underline and strikeout data if missing
+            var underlineSize = faceHeader.UnderlineThickness != 0 ?
+                faceHeader.UnderlineThickness : (faceHeader.UnitsPerEm + 7) / 14;
+            var underlinePosition = faceHeader.UnderlinePosition != 0 ?
+                faceHeader.UnderlinePosition : -((faceHeader.UnitsPerEm + 5) / 10);
+            var strikeoutSize = os2Data.StrikeoutSize != 0 ?
+                os2Data.StrikeoutSize : underlineSize;
+            var strikeoutPosition = os2Data.StrikeoutPosition != 0 ?
+                os2Data.StrikeoutPosition : faceHeader.UnitsPerEm / 3;
 
             // build the final font face; all data has been copied
             // out of the font file so we can close it after this
-            return fontFace;
+            return new FontFace(
+                cellAscent, cellDescent, lineHeight, os2Data.XHeight, os2Data.CapHeight,
+                underlineSize, underlinePosition, strikeoutSize, strikeoutPosition,
+                faceHeader.IsFixedPitch, os2Data.Weight, os2Data.Stretch, os2Data.Style, glyphTable
+            );
         }
 
         public void Dispose () {
