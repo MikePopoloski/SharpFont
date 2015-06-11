@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace SlimFont {
     // handles loading font data from TrueType (ttf), OpenType (otf), and TrueTypeCollection (ttc) files
-    public unsafe class TtfReader : IDisposable {
+    public unsafe class FontReader : IDisposable {
         Stream stream;
         DataReader reader;
         readonly uint[] faceOffsets;
@@ -15,11 +15,11 @@ namespace SlimFont {
 
         public int FontCount => faceOffsets.Length;
 
-        public TtfReader (string filePath)
+        public FontReader (string filePath)
             : this(File.OpenRead(filePath)) {
         }
 
-        public TtfReader (Stream stream, bool leaveOpen = false) {
+        public FontReader (Stream stream, bool leaveOpen = false) {
             this.stream = stream;
             this.leaveOpen = leaveOpen;
 
