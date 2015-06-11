@@ -62,7 +62,13 @@ namespace SlimFont {
             if (faceHeader.UnitsPerEm == 0)
                 Error("Invalid 'head' table.");
 
-            // random metrics are stuffed into the PostScript table
+            // max position table has a bunch of limits defined in it
+            SeekToTable(reader, records, FourCC.Maxp, required: true);
+            SfntTables.ReadMaxp(reader, ref faceHeader);
+            if (faceHeader.GlyphCount > MaxGlyphs)
+                Error("Font contains too many glyphs.");
+
+            // random junk is stuffed into the PostScript table
             if (SeekToTable(reader, records, FourCC.Post))
                 SfntTables.ReadPost(reader, ref faceHeader);
 
@@ -70,10 +76,27 @@ namespace SlimFont {
             SeekToTable(reader, records, FourCC.Hhea, required: true);
             var hMetrics = SfntTables.ReadMetricsHeader(reader);
 
+            // horizontal metrics table
+            SeekToTable(reader, records, FourCC.Hmtx, required: true);
+            var horizontal = SfntTables.ReadMetricsTable(reader, faceHeader.GlyphCount, hMetrics.MetricCount);
+
+            // font might optionally have vertical metrics
+            MetricsEntry[] vertical = null;
+            if (SeekToTable(reader, records, FourCC.Vhea)) {
+                var vMetrics = SfntTables.ReadMetricsHeader(reader);
+
+                SeekToTable(reader, records, FourCC.Vmtx, required: true);
+                vertical = SfntTables.ReadMetricsTable(reader, faceHeader.GlyphCount, vMetrics.MetricCount);
+            }
+
             // OS/2 table has even more metrics
             SeekToTable(reader, records, FourCC.OS_2, required: true);
             OS2Data os2Data;
             SfntTables.ReadOS2(reader, out os2Data);
+
+
+
+
 
             // TODO: HasOutline based on existence of glyf or CFF tables
 
@@ -90,13 +113,7 @@ namespace SlimFont {
             // load glyphs if we have them
             GlyphData[] glyphTable = null;
             if (SeekToTable(reader, records, FourCC.Glyf)) {
-                // first load the max position table; it will tell us how many glyphs we have
-                SeekToTable(reader, records, FourCC.Maxp, required: true);
-                SfntTables.ReadMaxp(reader, ref faceHeader);
-                if (faceHeader.GlyphCount > MaxGlyphs)
-                    Error("Font contains too many glyphs.");
-
-                // now read in the loca table, which tells us the byte offset of each glyph
+                // read in the loca table, which tells us the byte offset of each glyph
                 var loca = stackalloc uint[faceHeader.GlyphCount];
                 SeekToTable(reader, records, FourCC.Loca, required: true);
                 SfntTables.ReadLoca(reader, faceHeader.IndexFormat, loca, faceHeader.GlyphCount);
@@ -145,7 +162,8 @@ namespace SlimFont {
             return new FontFace(
                 cellAscent, cellDescent, lineHeight, os2Data.XHeight, os2Data.CapHeight,
                 underlineSize, underlinePosition, strikeoutSize, strikeoutPosition,
-                faceHeader.IsFixedPitch, os2Data.Weight, os2Data.Stretch, os2Data.Style, glyphTable
+                faceHeader.IsFixedPitch, os2Data.Weight, os2Data.Stretch, os2Data.Style,
+                glyphTable, horizontal, vertical
             );
         }
 

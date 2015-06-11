@@ -33,12 +33,14 @@ namespace SlimFont {
         public static readonly FourCC Ttcf = "ttcf";
         public static readonly FourCC Typ1 = "typ1";
         public static readonly FourCC Head = "head";
-        public static readonly FourCC Glyf = "glyf";
+        public static readonly FourCC Maxp = "maxp";
         public static readonly FourCC Post = "post";
         public static readonly FourCC OS_2 = "OS/2";
         public static readonly FourCC Hhea = "hhea";
         public static readonly FourCC Hmtx = "hmtx";
-        public static readonly FourCC Maxp = "maxp";
+        public static readonly FourCC Vhea = "vhea";
+        public static readonly FourCC Vmtx = "vmtx";
         public static readonly FourCC Loca = "loca";
+        public static readonly FourCC Glyf = "glyf";
     }
 }

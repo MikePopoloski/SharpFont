@@ -8,6 +8,8 @@ namespace SlimFont {
     public class FontFace {
         Renderer renderer = new Renderer();
         GlyphData[] glyphs;
+        MetricsEntry[] hmetrics;
+        MetricsEntry[] vmetrics;
         int cellAscent;
         int cellDescent;
         int lineHeight;
@@ -39,7 +41,8 @@ namespace SlimFont {
         internal FontFace (
             int cellAscent, int cellDescent, int lineHeight, int xHeight, int capHeight, int underlineSize,
             int underlinePosition, int strikeoutSize, int strikeoutPosition, bool isFixedWidth,
-            FontWeight weight, FontStretch stretch, FontStyle style, GlyphData[] glyphs
+            FontWeight weight, FontStretch stretch, FontStyle style, GlyphData[] glyphs,
+            MetricsEntry[] hmetrics, MetricsEntry[] vmetrics
         ) {
             this.cellAscent = cellAscent;
             this.cellDescent = cellDescent;
@@ -55,15 +58,19 @@ namespace SlimFont {
             this.stretch = stretch;
             this.style = style;
             this.glyphs = glyphs;
+            this.hmetrics = hmetrics;
+            this.vmetrics = vmetrics;
         }
 
         public GlyphMetrics GetGlyphMetrics (int glyphIndex) {
             if (glyphIndex < 0 || glyphIndex >= glyphs.Length)
                 throw new ArgumentOutOfRangeException(nameof(glyphIndex));
 
-            // compute the control box
-            var glyphData = glyphs[glyphIndex];
-            var cbox = FixedMath.ComputeControlBox(glyphData.Outline.Points);
+            // get horizontal metrics
+            var horizontal = hmetrics[glyphIndex];
+
+            //  get vertical metrics if we have them; otherwise synthesize them
+            // TODO:
 
             return default(GlyphMetrics);
         }

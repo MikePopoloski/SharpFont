@@ -53,6 +53,28 @@ namespace SlimFont {
             return header;
         }
 
+        public static MetricsEntry[] ReadMetricsTable (DataReader reader, int glyphCount, int metricCount) {
+            var results = new MetricsEntry[glyphCount];
+            for (int i = 0; i < metricCount; i++) {
+                results[i] = new MetricsEntry {
+                    Advance = reader.ReadUInt16BE(),
+                    FrontSideBearing = reader.ReadInt16BE()
+                };
+            }
+
+            // there might be an additional array of fsb-only entries
+            var extraCount = glyphCount - metricCount;
+            var lastAdvance = results[metricCount - 1].Advance;
+            for (int i = 0; i < extraCount; i++) {
+                results[i + metricCount] = new MetricsEntry {
+                    Advance = lastAdvance,
+                    FrontSideBearing = reader.ReadInt16BE()
+                };
+            }
+
+            return results;
+        }
+
         public static void ReadOS2 (DataReader reader, out OS2Data os2Data) {
             // skip over version, xAvgCharWidth
             reader.Skip(sizeof(short) * 2);
@@ -290,6 +312,11 @@ namespace SlimFont {
         public int Descender;
         public int LineGap;
         public int MetricCount;
+    }
+
+    struct MetricsEntry {
+        public int Advance;
+        public int FrontSideBearing;
     }
 
     struct OS2Data {
