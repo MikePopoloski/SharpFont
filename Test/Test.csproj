@@ -43,9 +43,9 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\SlimFont\SlimFont.csproj">
+    <ProjectReference Include="..\SharpFont\SharpFont.csproj">
       <Project>{8492da27-3077-43a2-80b0-d51e7da83bd2}</Project>
-      <Name>SlimFont</Name>
+      <Name>SharpFont</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

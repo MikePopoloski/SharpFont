@@ -7,8 +7,8 @@
     <ProjectGuid>{8492DA27-3077-43A2-80B0-D51E7DA83BD2}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>SlimFont</RootNamespace>
-    <AssemblyName>SlimFont</AssemblyName>
+    <RootNamespace>SharpFont</RootNamespace>
+    <AssemblyName>SharpFont</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
