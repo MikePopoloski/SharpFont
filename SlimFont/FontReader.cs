@@ -8,21 +8,12 @@ using System.Threading.Tasks;
 namespace SlimFont {
     // handles loading font data from TrueType (ttf), OpenType (otf), and TrueTypeCollection (ttc) files
     public unsafe class FontReader : IDisposable {
-        Stream stream;
-        DataReader reader;
+        readonly DataReader reader;
         readonly uint[] faceOffsets;
-        readonly bool leaveOpen;
 
         public int FontCount => faceOffsets.Length;
 
-        public FontReader (string filePath)
-            : this(File.OpenRead(filePath)) {
-        }
-
-        public FontReader (Stream stream, bool leaveOpen = false) {
-            this.stream = stream;
-            this.leaveOpen = leaveOpen;
-
+        public FontReader (Stream stream) {
             reader = new DataReader(stream);
 
             // read the file header; if we have a collection, we want to
@@ -31,7 +22,7 @@ namespace SlimFont {
             faceOffsets = ReadTTCHeader(reader) ?? new[] { 0u };
         }
 
-        public Typeface LoadFace (int faceIndex = 0) {
+        public Typeface ReadFace (int faceIndex = 0) {
             if (faceIndex >= faceOffsets.Length)
                 throw new ArgumentOutOfRangeException(nameof(faceIndex));
 
@@ -167,16 +158,7 @@ namespace SlimFont {
             );
         }
 
-        public void Dispose () {
-            if (stream != null) {
-                if (!leaveOpen)
-                    stream.Close();
-                reader.Dispose();
-
-                stream = null;
-                reader = null;
-            }
-        }
+        public void Dispose () => reader.Dispose();
 
         static uint[] ReadTTCHeader (DataReader reader) {
             var tag = reader.ReadUInt32();

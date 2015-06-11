@@ -1,6 +1,7 @@
 ﻿using SlimFont;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Test {
@@ -17,8 +18,9 @@ namespace Test {
             for (int i = 0; i < 27 * 46; i++)
                 *stuff++ = 0;
 
-            using (var loader = new FontReader("../../../Fonts/OpenSans-Regular.ttf")) {
-                var face = loader.LoadFace();
+            using (var file = File.OpenRead("../../../Fonts/OpenSans-Regular.ttf"))
+            using (var loader = new FontReader(file)) {
+                var face = loader.ReadFace();
                 face.RenderGlyph(25, surface);
             }
 
