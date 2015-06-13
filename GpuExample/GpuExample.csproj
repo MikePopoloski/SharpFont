@@ -50,6 +50,8 @@
     <Compile Include="..\external\bgfx\SharpBgfx.cs">
       <Link>SharpBgfx.cs</Link>
     </Compile>
+    <Compile Include="GlyphCache.cs" />
+    <Compile Include="TextBuffer.cs" />
     <Compile Include="TextureAtlas.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -64,6 +66,12 @@
       <Link>bgfx_debug.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SharpFont\SharpFont.csproj">
+      <Project>{8492da27-3077-43a2-80b0-d51e7da83bd2}</Project>
+      <Name>SharpFont</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
