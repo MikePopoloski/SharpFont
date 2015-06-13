@@ -3,12 +3,12 @@ using System;
 using System.Numerics;
 
 namespace GpuExample {
-    class TexturePage : IDisposable {
+    class TextureAtlas : IDisposable {
         BinPacker packer;
         Texture texture;
         ResizableArray<Vector4> regions;
 
-        public TexturePage (int size) {
+        public TextureAtlas (int size) {
             packer = new BinPacker(size, size);
             texture = Texture.Create2D(size, size, 1, TextureFormat.R8);
             regions = new ResizableArray<Vector4>(256);
