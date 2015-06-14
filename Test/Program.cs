@@ -22,6 +22,8 @@ namespace Test {
             using (var loader = new FontReader(file)) {
                 var face = loader.ReadFace();
                 face.RenderGlyph(25, surface);
+
+                var blah = face.GetFaceMetrics(64);
             }
 
             // copy the output to a bitmap for easy debugging

@@ -12,6 +12,9 @@ namespace SharpFont {
         MetricsEntry[] hmetrics;
         MetricsEntry[] vmetrics;
         CharacterMap charMap;
+        FontWeight weight;
+        FontStretch stretch;
+        FontStyle style;
         int cellAscent;
         int cellDescent;
         int lineHeight;
@@ -21,31 +24,23 @@ namespace SharpFont {
         int underlinePosition;
         int strikeoutSize;
         int strikeoutPosition;
+        int unitsPerEm;
         bool isFixedWidth;
-        FontWeight weight;
-        FontStretch stretch;
-        FontStyle style;
+        bool integerPpems;
 
-        public int CellAscent => cellAscent;
-        public int CellDescent => cellDescent;
-        public int LineHeight => lineHeight;
-        public int XHeight => xHeight;
-        public int CapHeight => capHeight;
-        public int UnderlineSize => underlineSize;
-        public int UnderlinePosition => underlinePosition;
-        public int StrikeoutSize => strikeoutSize;
-        public int StrikeoutPosition => strikeoutPosition;
         public bool IsFixedWidth => isFixedWidth;
         public FontWeight Weight => weight;
         public FontStretch Stretch => stretch;
         public FontStyle Style => style;
 
         internal Typeface (
-            int cellAscent, int cellDescent, int lineHeight, int xHeight, int capHeight, int underlineSize,
-            int underlinePosition, int strikeoutSize, int strikeoutPosition, bool isFixedWidth,
-            FontWeight weight, FontStretch stretch, FontStyle style, GlyphData[] glyphs,
-            MetricsEntry[] hmetrics, MetricsEntry[] vmetrics, CharacterMap charMap
+            int unitsPerEm, int cellAscent, int cellDescent, int lineHeight, int xHeight,
+            int capHeight, int underlineSize, int underlinePosition, int strikeoutSize,
+            int strikeoutPosition, FontWeight weight, FontStretch stretch, FontStyle style,
+            GlyphData[] glyphs, MetricsEntry[] hmetrics, MetricsEntry[] vmetrics,
+            CharacterMap charMap, bool isFixedWidth, bool integerPpems
         ) {
+            this.unitsPerEm = unitsPerEm;
             this.cellAscent = cellAscent;
             this.cellDescent = cellDescent;
             this.lineHeight = lineHeight;
@@ -55,7 +50,6 @@ namespace SharpFont {
             this.underlinePosition = underlinePosition;
             this.strikeoutSize = strikeoutSize;
             this.strikeoutPosition = strikeoutPosition;
-            this.isFixedWidth = isFixedWidth;
             this.weight = weight;
             this.stretch = stretch;
             this.style = style;
@@ -63,6 +57,25 @@ namespace SharpFont {
             this.hmetrics = hmetrics;
             this.vmetrics = vmetrics;
             this.charMap = charMap;
+            this.isFixedWidth = isFixedWidth;
+            this.integerPpems = integerPpems;
+        }
+
+        public static float ComputePixelSize (float pointSize, int dpi) => pointSize * dpi / 72;
+
+        public FaceMetrics GetFaceMetrics (float pixelSize) {
+            var scale = ComputeScale(pixelSize);
+            return new FaceMetrics(
+                Round(cellAscent * scale),
+                Round(cellDescent * scale),
+                Round(lineHeight * scale),
+                Round(xHeight * scale),
+                Round(capHeight * scale),
+                Round(underlineSize * scale),
+                Round(underlinePosition * scale),
+                Round(strikeoutSize * scale),
+                Round(strikeoutPosition * scale)
+            );
         }
 
         public GlyphMetrics GetGlyphMetrics (int glyphIndex) {
@@ -202,6 +215,61 @@ namespace SharpFont {
 
             if (needClose)
                 renderer.LineTo(start);
+        }
+
+        float ComputeScale (float pixelSize) {
+            if (integerPpems)
+                pixelSize = Round(pixelSize);
+            return pixelSize / unitsPerEm;
+        }
+
+        static float Round (float value) => (float)Math.Round(value, MidpointRounding.AwayFromZero);
+    }
+
+    public struct CodePoint {
+        int value;
+
+        public CodePoint (int codePoint) {
+            value = codePoint;
+        }
+
+        public CodePoint (char character) {
+            value = character;
+        }
+
+        public CodePoint (char highSurrogate, char lowSurrogate) {
+            value = char.ConvertToUtf32(highSurrogate, lowSurrogate);
+        }
+
+        public static explicit operator CodePoint (int codePoint) => new CodePoint(codePoint);
+        public static implicit operator CodePoint (char character) => new CodePoint(character);
+    }
+
+    public class FaceMetrics {
+        public readonly float CellAscent;
+        public readonly float CellDescent;
+        public readonly float LineHeight;
+        public readonly float XHeight;
+        public readonly float CapHeight;
+        public readonly float UnderlineSize;
+        public readonly float UnderlinePosition;
+        public readonly float StrikeoutSize;
+        public readonly float StrikeoutPosition;
+
+        public FaceMetrics (
+            float cellAscent, float cellDescent, float lineHeight, float xHeight,
+            float capHeight, float underlineSize, float underlinePosition,
+            float strikeoutSize, float strikeoutPosition
+        ) {
+            CellAscent = cellAscent;
+            CellDescent = cellDescent;
+            LineHeight = lineHeight;
+            XHeight = xHeight;
+            CapHeight = capHeight;
+            UnderlineSize = underlineSize;
+            UnderlinePosition = underlinePosition;
+            StrikeoutSize = strikeoutSize;
+            StrikeoutPosition = strikeoutPosition;
         }
     }
 

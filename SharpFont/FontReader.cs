@@ -151,10 +151,11 @@ namespace SharpFont {
             // build the final font face; all data has been copied
             // out of the font file so we can close it after this
             return new Typeface(
-                cellAscent, cellDescent, lineHeight, os2Data.XHeight, os2Data.CapHeight,
-                underlineSize, underlinePosition, strikeoutSize, strikeoutPosition,
-                faceHeader.IsFixedPitch, os2Data.Weight, os2Data.Stretch, os2Data.Style,
-                glyphTable, horizontal, vertical, cmap
+                faceHeader.UnitsPerEm, cellAscent, cellDescent, lineHeight, os2Data.XHeight,
+                os2Data.CapHeight, underlineSize, underlinePosition, strikeoutSize,
+                strikeoutPosition, os2Data.Weight, os2Data.Stretch, os2Data.Style,
+                glyphTable, horizontal, vertical, cmap, faceHeader.IsFixedPitch,
+                (faceHeader.Flags & HeadFlags.IntegerPpem) != 0
             );
         }
 

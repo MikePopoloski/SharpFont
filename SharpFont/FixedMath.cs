@@ -61,6 +61,7 @@ namespace SharpFont {
 
         public static F26Dot6 operator +(F26Dot6 lhs, F26Dot6 rhs) => (F26Dot6)(lhs.value + rhs.value);
         public static F26Dot6 operator -(F26Dot6 lhs, F26Dot6 rhs) => (F26Dot6)(lhs.value - rhs.value);
+        public static F26Dot6 operator *(F26Dot6 lhs, int rhs) => (F26Dot6)(lhs.value * rhs);
         public static F26Dot6 operator /(F26Dot6 lhs, int rhs) => (F26Dot6)(lhs.value / rhs);
         public static F26Dot6 operator -(F26Dot6 v) => (F26Dot6)(-v.value);
     }

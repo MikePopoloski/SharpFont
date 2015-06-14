@@ -5,10 +5,10 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace SharpFont {
-    unsafe class CharacterMap {
-        Dictionary<int, int> table = new Dictionary<int, int>();
+    class CharacterMap {
+        Dictionary<CodePoint, int> table = new Dictionary<CodePoint, int>();
 
-        CharacterMap (Dictionary<int, int> table) {
+        CharacterMap (Dictionary<CodePoint, int> table) {
             this.table = table;
         }
 
@@ -56,7 +56,7 @@ namespace SharpFont {
                 }
             }
 
-            // no unicode support is an error
+            // no unicode support at all is an error
             if (chosenSubtableOffset == 0)
                 throw new InvalidFontException("Font does not support Unicode.");
 
@@ -69,7 +69,7 @@ namespace SharpFont {
             }
         }
 
-        static CharacterMap ReadCmapFormat4 (DataReader reader) {
+        unsafe static CharacterMap ReadCmapFormat4 (DataReader reader) {
             // skip over length and language
             reader.Skip(sizeof(short) * 2);
 
@@ -97,7 +97,7 @@ namespace SharpFont {
                 idDelta[i] = reader.ReadInt16BE();
 
             // build table from each segment
-            var table = new Dictionary<int, int>();
+            var table = new Dictionary<CodePoint, int>();
             for (int i = 0; i < segmentCount; i++) {
                 // read the "idRangeOffset" for the current segment
                 // if nonzero, we need to jump into the glyphIdArray to figure out the mapping
@@ -114,7 +114,7 @@ namespace SharpFont {
                         if (glyphId != 0) {
                             var glyphIndex = (glyphId + delta) & 0xFFFF;
                             if (glyphIndex != 0)
-                                table.Add(codepoint, glyphIndex);
+                                table.Add((CodePoint)codepoint, glyphIndex);
                         }
                     }
 
@@ -127,7 +127,7 @@ namespace SharpFont {
                     for (var codepoint = startCount[i]; codepoint <= end; codepoint++) {
                         var glyphIndex = (codepoint + delta) & 0xFFFF;
                         if (glyphIndex != 0)
-                            table.Add(codepoint, glyphIndex);
+                            table.Add((CodePoint)codepoint, glyphIndex);
                     }
                 }
             }
