@@ -12,6 +12,13 @@ namespace SharpFont {
             this.table = table;
         }
 
+        public int Lookup (CodePoint codePoint) {
+            int index;
+            if (table.TryGetValue(codePoint, out index))
+                return index;
+            return -1;
+        }
+
         public static CharacterMap ReadCmap (DataReader reader) {
             // skip version
             var cmapOffset = reader.Position;

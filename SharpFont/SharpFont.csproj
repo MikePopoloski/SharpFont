@@ -38,6 +38,7 @@
   <ItemGroup>
     <Compile Include="CharacterMap.cs" />
     <Compile Include="DataReader.cs" />
+    <Compile Include="Glyph.cs" />
     <Compile Include="InvalidFontException.cs" />
     <Compile Include="Typeface.cs" />
     <Compile Include="FourCC.cs" />
