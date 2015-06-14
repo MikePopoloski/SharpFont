@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SharpFont;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -10,6 +11,7 @@ namespace SlimFont {
         GlyphData[] glyphs;
         MetricsEntry[] hmetrics;
         MetricsEntry[] vmetrics;
+        CharacterMap charMap;
         int cellAscent;
         int cellDescent;
         int lineHeight;
@@ -42,7 +44,7 @@ namespace SlimFont {
             int cellAscent, int cellDescent, int lineHeight, int xHeight, int capHeight, int underlineSize,
             int underlinePosition, int strikeoutSize, int strikeoutPosition, bool isFixedWidth,
             FontWeight weight, FontStretch stretch, FontStyle style, GlyphData[] glyphs,
-            MetricsEntry[] hmetrics, MetricsEntry[] vmetrics
+            MetricsEntry[] hmetrics, MetricsEntry[] vmetrics, CharacterMap charMap
         ) {
             this.cellAscent = cellAscent;
             this.cellDescent = cellDescent;
@@ -60,6 +62,7 @@ namespace SlimFont {
             this.glyphs = glyphs;
             this.hmetrics = hmetrics;
             this.vmetrics = vmetrics;
+            this.charMap = charMap;
         }
 
         public GlyphMetrics GetGlyphMetrics (int glyphIndex) {

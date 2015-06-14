@@ -42,5 +42,6 @@ namespace SlimFont {
         public static readonly FourCC Vmtx = "vmtx";
         public static readonly FourCC Loca = "loca";
         public static readonly FourCC Glyf = "glyf";
+        public static readonly FourCC Cmap = "cmap";
     }
 }

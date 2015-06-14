@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SharpFont;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -85,21 +86,20 @@ namespace SlimFont {
             OS2Data os2Data;
             SfntTables.ReadOS2(reader, out os2Data);
 
+            // read character-to-glyph mapping tables
+            SeekToTable(reader, records, FourCC.Cmap, required: true);
+            var cmap = CharacterMap.ReadCmap(reader);
 
 
 
 
             // TODO: HasOutline based on existence of glyf or CFF tables
-
-            // TODO: metrics tables
-
+            
             // TODO: kerning and gasp
 
             // TODO: friendly names
 
             // TODO: embedded bitmaps
-
-            // TODO: cmap
 
             // load glyphs if we have them
             GlyphData[] glyphTable = null;
@@ -154,7 +154,7 @@ namespace SlimFont {
                 cellAscent, cellDescent, lineHeight, os2Data.XHeight, os2Data.CapHeight,
                 underlineSize, underlinePosition, strikeoutSize, strikeoutPosition,
                 faceHeader.IsFixedPitch, os2Data.Weight, os2Data.Stretch, os2Data.Style,
-                glyphTable, horizontal, vertical
+                glyphTable, horizontal, vertical, cmap
             );
         }
 
