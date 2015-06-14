@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SlimFont {
+namespace SharpFont {
     public class Typeface {
         Renderer renderer = new Renderer();
         GlyphData[] glyphs;

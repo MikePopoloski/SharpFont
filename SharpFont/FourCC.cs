@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace SlimFont {
+namespace SharpFont {
     // helper wrapper around 4CC codes for debugging purposes
     struct FourCC {
         uint value;

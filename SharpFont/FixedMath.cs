@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SlimFont {
+namespace SharpFont {
     // Fixed point: 2.14
     // used for unit vectors
     struct F2Dot14 {

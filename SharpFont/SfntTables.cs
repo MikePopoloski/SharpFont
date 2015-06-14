@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SlimFont {
+namespace SharpFont {
     // raw SFNT container table reading routines
     unsafe static class SfntTables {
         public static void ReadHead (DataReader reader, out FaceHeader header) {

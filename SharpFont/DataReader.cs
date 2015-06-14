@@ -2,7 +2,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace SlimFont {
+namespace SharpFont {
     unsafe sealed class DataReader : IDisposable {
         readonly Stream stream;
         readonly byte[] buffer;

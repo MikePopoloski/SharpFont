@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SlimFont {
+namespace SharpFont {
     // handles loading font data from TrueType (ttf), OpenType (otf), and TrueTypeCollection (ttc) files
     public unsafe class FontReader : IDisposable {
         readonly DataReader reader;

@@ -1,4 +1,4 @@
-﻿using SlimFont;
+﻿using SharpFont;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace SlimFont {
+namespace SharpFont {
     // handles rasterizing curves to a bitmap
     // the algorithm is heavily inspired by the FreeType2 renderer; thanks guys!
     unsafe class Renderer {
