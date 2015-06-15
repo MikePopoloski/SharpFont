@@ -86,6 +86,12 @@ namespace SharpFont {
             if (dx < (int)delta.Y)
                 dx = (int)delta.Y;
 
+            // short cut for small arcs
+            if (dx < (int)F24Dot8.One / 4) {
+                RenderLine(arc[0]);
+                return;
+            }
+
             int level = 0;
             do {
                 dx >>= 2;

@@ -1,36 +1,83 @@
 ﻿using SharpFont;
+using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Test {
-    class Program {
-        unsafe static void Main (string[] args) {
+    unsafe class Program {
+        const string ComparisonPath = "../../../../font_rasters/";
+
+        static readonly HashSet<char> InvalidChars = new HashSet<char> {
+            '"', '*', '/', ':', '<', '>', '?'
+        };
+
+        static void Main (string[] args) {
+            var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
+
+            for (int c = 33; c < 127; c++) {
+                var character = (char)c;
+                if (InvalidChars.Contains(character))
+                    continue;
+
+                var comparisonFile = Path.Combine(ComparisonPath, new string(character, char.IsUpper(character) ? 2 : 1) + ".png");
+                CompareRender(typeface, character, comparisonFile);
+            }
+
+            //var surface = RenderGlyph(typeface, '3');
+            //SaveSurface(surface, "result.png");
+        }
+
+        static void CompareRender (Typeface typeface, char c, string comparisonFile) {
+            var surface = RenderGlyph(typeface, c);
+
+            // compare against FreeType renders
+            var compare = (Bitmap)Image.FromFile(comparisonFile);
+            if (compare.Width != surface.Width || compare.Height != surface.Height)
+                throw new Exception();
+
+            var bitmapData = compare.LockBits(new Rectangle(0, 0, surface.Width, surface.Height), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            for (int y = 0; y < surface.Height; y++) {
+                var dest = (byte*)bitmapData.Scan0 + y * bitmapData.Stride;
+                var src = (byte*)surface.Bits + y * surface.Pitch;
+
+                for (int x = 0; x < surface.Width; x++) {
+                    var a = *src++;
+                    var b = *dest;
+                    if (Math.Abs(a - b) > 3)
+                        throw new Exception();
+                    dest += 3;
+                }
+            }
+
+            compare.UnlockBits(bitmapData);
+            compare.Dispose();
+            Marshal.FreeHGlobal(surface.Bits);
+        }
+
+        static Surface RenderGlyph (Typeface typeface, char c) {
+            var glyph = typeface.GetGlyph(c, 32);
             var surface = new Surface {
-                Bits = Marshal.AllocHGlobal(27 * 46),
-                Width = 27,
-                Height = 46,
-                Pitch = 27
+                Bits = Marshal.AllocHGlobal((int)glyph.Width * (int)glyph.Height),
+                Width = (int)glyph.Width,
+                Height = (int)glyph.Height,
+                Pitch = (int)glyph.Width
             };
 
             var stuff = (byte*)surface.Bits;
-            for (int i = 0; i < 27 * 46; i++)
+            for (int i = 0; i < surface.Width * surface.Height; i++)
                 *stuff++ = 0;
 
-            using (var file = File.OpenRead("../../../Fonts/OpenSans-Regular.ttf"))
-            using (var loader = new FontReader(file)) {
-                var face = loader.ReadFace();
-                var blah = face.GetFaceMetrics(64);
-                var glyph = face.GetGlyph('a', 64);
+            glyph.Render(surface);
 
-                glyph.Render(surface);
-            }
+            return surface;
+        }
 
-            // copy the output to a bitmap for easy debugging
-            var bitmap = new Bitmap(surface.Width, surface.Height);
+        static void SaveSurface (Surface surface, string fileName) {
+            var bitmap = new Bitmap(surface.Width, surface.Height, PixelFormat.Format24bppRgb);
             var bitmapData = bitmap.LockBits(new Rectangle(0, 0, surface.Width, surface.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-
             for (int y = 0; y < surface.Height; y++) {
                 var dest = (byte*)bitmapData.Scan0 + y * bitmapData.Stride;
                 var src = (byte*)surface.Bits + y * surface.Pitch;
@@ -44,7 +91,15 @@ namespace Test {
             }
 
             bitmap.UnlockBits(bitmapData);
-            bitmap.Save("result.bmp");
+            bitmap.Save(fileName);
+            bitmap.Dispose();
+            Marshal.FreeHGlobal(surface.Bits);
+        }
+
+        static Typeface LoadTypeface (string fileName) {
+            using (var file = File.OpenRead(fileName))
+            using (var loader = new FontReader(file))
+                return loader.ReadFace();
         }
     }
 }

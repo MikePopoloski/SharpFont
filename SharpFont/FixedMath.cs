@@ -161,6 +161,8 @@ namespace SharpFont {
         public static F26Dot6 Ceiling (F26Dot6 v) => Floor((F26Dot6)((int)v + 0x3f));
         public static F26Dot6 Min (F26Dot6 a, F26Dot6 b) => (int)a < (int)b ? a : b;
         public static F26Dot6 Max (F26Dot6 a, F26Dot6 b) => (int)a > (int)b ? a : b;
+        public static F24Dot8 Min (F24Dot8 a, F24Dot8 b) => (int)a < (int)b ? a : b;
+        public static F24Dot8 Max (F24Dot8 a, F24Dot8 b) => (int)a > (int)b ? a : b;
         public static F24Dot8 Floor (F24Dot8 v) => (F24Dot8)((int)v & ~0xff);
         public static F24Dot8 Abs (F24Dot8 v) => (F24Dot8)Math.Abs((int)v);
         public static V24Dot8 Abs (V24Dot8 v) => new V24Dot8(Abs(v.X), Abs(v.Y));
