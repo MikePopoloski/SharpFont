@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -94,7 +95,7 @@ namespace SharpFont {
 
 
             // TODO: HasOutline based on existence of glyf or CFF tables
-            
+
             // TODO: kerning and gasp
 
             // TODO: friendly names
@@ -102,7 +103,7 @@ namespace SharpFont {
             // TODO: embedded bitmaps
 
             // load glyphs if we have them
-            GlyphData[] glyphTable = null;
+            BaseGlyph[] glyphTable = null;
             if (SeekToTable(reader, records, FourCC.Glyf)) {
                 // read in the loca table, which tells us the byte offset of each glyph
                 var loca = stackalloc uint[faceHeader.GlyphCount];
@@ -112,7 +113,7 @@ namespace SharpFont {
                 // read in all glyphs
                 SeekToTable(reader, records, FourCC.Glyf);
                 var glyfOffset = reader.Position;
-                glyphTable = new GlyphData[faceHeader.GlyphCount];
+                glyphTable = new BaseGlyph[faceHeader.GlyphCount];
                 for (int i = 0; i < glyphTable.Length; i++)
                     ReadGlyph(reader, i, 0, glyphTable, glyfOffset, loca);
             }
@@ -179,7 +180,7 @@ namespace SharpFont {
             return offsets;
         }
 
-        static void ReadGlyph (DataReader reader, int glyphIndex, int recursionDepth, GlyphData[] glyphTable, uint glyfOffset, uint* loca) {
+        static void ReadGlyph (DataReader reader, int glyphIndex, int recursionDepth, BaseGlyph[] glyphTable, uint glyfOffset, uint* loca) {
             // check if this glyph has already been loaded; this can happen
             // if we're recursively loading subglyphs as part of a composite
             if (glyphTable[glyphIndex] != null)
@@ -196,17 +197,11 @@ namespace SharpFont {
             if (contours < -1 || contours > MaxContours)
                 Error("Invalid number of contours for glyph.");
 
-            // load metrics for this glyph
-
             if (contours == 0) {
             }
             else if (contours > 0) {
                 // positive contours means a simple glyph
-                var simple = SfntTables.ReadSimpleGlyph(reader, contours);
-                glyphTable[glyphIndex] = new GlyphData {
-                    Outline = simple.Outline,
-                    Instructions = simple.Instructions
-                };
+                glyphTable[glyphIndex] = SfntTables.ReadSimpleGlyph(reader, contours);
             }
             else if (contours == -1) {
                 // -1 means composite glyph
@@ -214,11 +209,10 @@ namespace SharpFont {
                 var subglyphs = composite.Subglyphs;
 
                 // read each subglyph recrusively
-                for (int i = 0; i < subglyphs.Length; i++) {
+                for (int i = 0; i < subglyphs.Length; i++)
                     ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable, glyfOffset, loca);
 
-                    // TODO
-                }
+                glyphTable[glyphIndex] = composite;
             }
         }
 
@@ -268,10 +262,5 @@ namespace SharpFont {
         const int MaxFontsInCollection = 64;
         const uint TTFv1 = 0x10000;
         const uint TTFv2 = 0x20000;
-    }
-
-    class GlyphData {
-        public GlyphOutline Outline;
-        public byte[] Instructions;
     }
 }

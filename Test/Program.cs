@@ -60,10 +60,10 @@ namespace Test {
         static Surface RenderGlyph (Typeface typeface, char c) {
             var glyph = typeface.GetGlyph(c, 32);
             var surface = new Surface {
-                Bits = Marshal.AllocHGlobal((int)glyph.Width * (int)glyph.Height),
-                Width = (int)glyph.Width,
-                Height = (int)glyph.Height,
-                Pitch = (int)glyph.Width
+                Bits = Marshal.AllocHGlobal(glyph.RenderWidth * glyph.RenderHeight),
+                Width = glyph.RenderWidth,
+                Height = glyph.RenderHeight,
+                Pitch = glyph.RenderWidth
             };
 
             var stuff = (byte*)surface.Bits;

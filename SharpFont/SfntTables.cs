@@ -344,9 +344,12 @@ namespace SharpFont {
         public short MaxY;
     }
 
-    struct SimpleGlyph {
-        public GlyphOutline Outline;
+    abstract class BaseGlyph {
         public byte[] Instructions;
+    }
+
+    class SimpleGlyph : BaseGlyph {
+        public GlyphOutline Outline;
     }
 
     struct Subglyph {
@@ -357,9 +360,8 @@ namespace SharpFont {
         public int Arg2;
     }
 
-    struct CompositeGlyph {
+    class CompositeGlyph : BaseGlyph {
         public Subglyph[] Subglyphs;
-        public byte[] Instructions;
     }
 
     [Flags]
@@ -377,7 +379,7 @@ namespace SharpFont {
     enum CompositeGlyphFlags {
         None = 0,
         ArgsAreWords = 0x1,
-        AresAreXYValues = 0x2,
+        ArgsAreXYValues = 0x2,
         RoundXYToGrid = 0x4,
         HaveScale = 0x8,
         MoreComponents = 0x20,

@@ -154,6 +154,13 @@ namespace SharpFont {
 
         public F26Dot6 Width => MaxX - MinX;
         public F26Dot6 Height => MaxY - MinY;
+
+        public void UnionWith (Point point) {
+            MinX = FixedMath.Min(MinX, point.X);
+            MinY = FixedMath.Min(MinY, point.Y);
+            MaxX = FixedMath.Max(MaxX, point.X);
+            MaxY = FixedMath.Max(MaxY, point.Y);
+        }
     }
 
     static class FixedMath {

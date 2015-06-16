@@ -7,8 +7,9 @@ using System.Threading.Tasks;
 
 namespace SharpFont {
     public class Typeface {
-        Renderer renderer = new Renderer();
-        GlyphData[] glyphs;
+        internal Renderer Renderer = new Renderer();
+        internal BaseGlyph[] Glyphs;
+
         MetricsEntry[] hmetrics;
         MetricsEntry[] vmetrics;
         CharacterMap charMap;
@@ -37,7 +38,7 @@ namespace SharpFont {
             int unitsPerEm, int cellAscent, int cellDescent, int lineHeight, int xHeight,
             int capHeight, int underlineSize, int underlinePosition, int strikeoutSize,
             int strikeoutPosition, FontWeight weight, FontStretch stretch, FontStyle style,
-            GlyphData[] glyphs, MetricsEntry[] hmetrics, MetricsEntry[] vmetrics,
+            BaseGlyph[] glyphs, MetricsEntry[] hmetrics, MetricsEntry[] vmetrics,
             CharacterMap charMap, bool isFixedWidth, bool integerPpems
         ) {
             this.unitsPerEm = unitsPerEm;
@@ -53,12 +54,13 @@ namespace SharpFont {
             this.weight = weight;
             this.stretch = stretch;
             this.style = style;
-            this.glyphs = glyphs;
             this.hmetrics = hmetrics;
             this.vmetrics = vmetrics;
             this.charMap = charMap;
             this.isFixedWidth = isFixedWidth;
             this.integerPpems = integerPpems;
+
+            Glyphs = glyphs;
         }
 
         public static float ComputePixelSize (float pointSize, int dpi) => pointSize * dpi / 72;
@@ -91,21 +93,23 @@ namespace SharpFont {
 
             var scale = ComputeScale(pixelSize);
 
-            var glyphData = glyphs[glyphIndex];
-            var outline = glyphData.Outline;
-            var points = outline.Points;
-            // TODO: don't round the control box
-            var cbox = FixedMath.ComputeControlBox(points);
+            return new Glyph(this, glyphIndex, scale);
 
-            return new Glyph(
-                glyphData,
-                renderer,
-                (int)cbox.MinX * scale,
-                (int)cbox.MaxY * scale,
-                (int)(cbox.MaxX - cbox.MinX) * scale,
-                (int)(cbox.MaxY - cbox.MinY) * scale,
-                horizontal.Advance * scale
-            );
+            //var glyphData = glyphs[glyphIndex];
+            //var outline = glyphData.Outline;
+            //var points = outline.Points;
+            //// TODO: don't round the control box
+            //var cbox = FixedMath.ComputeControlBox(points);
+
+            //return new Glyph(
+            //    glyphData,
+            //    renderer,
+            //    (int)cbox.MinX * scale,
+            //    (int)cbox.MaxY * scale,
+            //    (int)(cbox.MaxX - cbox.MinX) * scale,
+            //    (int)(cbox.MaxY - cbox.MinY) * scale,
+            //    horizontal.Advance * scale
+            //);
         }
 
         float ComputeScale (float pixelSize) {

@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 
 namespace SharpFont {
     public class Glyph {
-        Renderer renderer;
-        GlyphData data;
+        Typeface typeface;
+        int glyphIndex;
 
         public readonly float Left;
         public readonly float Top;
@@ -15,20 +15,52 @@ namespace SharpFont {
         public readonly float Height;
         public readonly float Advance;
 
-        internal Glyph (GlyphData data, Renderer renderer, float left, float top, float width, float height, float advance) {
-            this.renderer = renderer;
-            this.data = data;
+        public readonly int RenderWidth;
+        public readonly int RenderHeight;
 
-            Left = left;
-            Top = top;
-            Width = width;
-            Height = height;
-            Advance = advance;
+        internal Glyph (Typeface typeface, int glyphIndex, float scale) {
+            this.typeface = typeface;
+            this.glyphIndex = glyphIndex;
+
+            var bbox = new BoundingBox {
+                MinX = new F26Dot6(int.MaxValue),
+                MinY = new F26Dot6(int.MaxValue),
+                MaxX = new F26Dot6(int.MinValue),
+                MaxY = new F26Dot6(int.MinValue)
+            };
+
+            FindBoundingBox(typeface.Glyphs[glyphIndex], ref bbox);
+
+            Width = (int)(bbox.MaxX - bbox.MinX) * scale;
+            Height = (int)(bbox.MaxY - bbox.MinY) * scale;
+
+            RenderWidth = (int)((int)(FixedMath.Ceiling(bbox.MaxX) - FixedMath.Floor(bbox.MinX)) * scale);
+            RenderHeight = (int)((int)(FixedMath.Ceiling(bbox.MaxY) - FixedMath.Floor(bbox.MinY)) * scale);
+
+            //Left = left;
+            //Top = top;
+            //Width = width;
+            //Height = height;
+            //Advance = advance;
         }
 
         public void Render (Surface surface) {
-            // get out all the junk we care about
-            var outline = data.Outline;
+            RenderGlyph(typeface.Glyphs[glyphIndex], surface);
+        }
+
+        void RenderGlyph (BaseGlyph glyph, Surface surface) {
+            // if we have a composite, recursively render each subglyph
+            var composite = glyph as CompositeGlyph;
+            if (composite != null) {
+                foreach (var subglyph in composite.Subglyphs)
+                    RenderGlyph(typeface.Glyphs[subglyph.Index], surface);
+                return;
+            }
+
+            // otherwise, we have a simple glyph, so render it
+            var renderer = typeface.Renderer;
+            var simple = (SimpleGlyph)glyph;
+            var outline = simple.Outline;
             var points = outline.Points;
             var contours = outline.ContourEndpoints;
             var types = outline.PointTypes;
@@ -73,6 +105,21 @@ namespace SharpFont {
 
             // blit the result to the target surface
             renderer.BlitTo(surface);
+        }
+
+        void FindBoundingBox (BaseGlyph glyph, ref BoundingBox bbox) {
+            var simple = glyph as SimpleGlyph;
+            if (simple != null) {
+                foreach (var point in simple.Outline.Points)
+                    bbox.UnionWith(point);
+                return;
+            }
+
+            // otherwise, we have a composite
+            var composite = (CompositeGlyph)glyph;
+            foreach (var subglyph in composite.Subglyphs) {
+                FindBoundingBox(typeface.Glyphs[subglyph.Index], ref bbox);
+            }
         }
 
         static void DecomposeContour (Renderer renderer, int firstIndex, int lastIndex, Point[] points, PointType[] types) {

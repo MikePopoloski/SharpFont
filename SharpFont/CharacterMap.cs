@@ -48,7 +48,7 @@ namespace SharpFont {
                 }
             }
 
-            // if no full unicode table, so just grab the first
+            // if no full unicode table, just grab the first
             // one that supports any flavor of Unicode
             if (chosenSubtableOffset == 0) {
                 for (int i = 0; i < subtableHeaders.Length; i++) {
