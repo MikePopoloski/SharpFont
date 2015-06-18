@@ -29,7 +29,7 @@ namespace SharpFont {
                 MaxY = new F26Dot6(int.MinValue)
             };
 
-            FindBoundingBox(typeface.Glyphs[glyphIndex], ref bbox);
+            FindBoundingBox(typeface.Glyphs[glyphIndex], scale, ref bbox);
 
             Width = (int)(bbox.MaxX - bbox.MinX) * scale;
             Height = (int)(bbox.MaxY - bbox.MinY) * scale;
@@ -107,7 +107,7 @@ namespace SharpFont {
             renderer.BlitTo(surface);
         }
 
-        void FindBoundingBox (BaseGlyph glyph, ref BoundingBox bbox) {
+        void FindBoundingBox (BaseGlyph glyph, float scale, ref BoundingBox bbox) {
             var simple = glyph as SimpleGlyph;
             if (simple != null) {
                 foreach (var point in simple.Outline.Points)
@@ -118,7 +118,10 @@ namespace SharpFont {
             // otherwise, we have a composite
             var composite = (CompositeGlyph)glyph;
             foreach (var subglyph in composite.Subglyphs) {
-                FindBoundingBox(typeface.Glyphs[subglyph.Index], ref bbox);
+                // calculate the offset for the subglyph
+
+
+                FindBoundingBox(typeface.Glyphs[subglyph.Index], scale, ref bbox);
             }
         }
 

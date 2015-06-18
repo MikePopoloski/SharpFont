@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Numerics;
 
 namespace SharpFont {
     // handles rasterizing curves to a bitmap
@@ -7,12 +8,13 @@ namespace SharpFont {
         Surface surface;                // the surface we're currently rendering to
         int[] scanlines;                // one scanline per Y, points into cell buffer
         int[] curveLevels;
-        V24Dot8[] bezierArc;            // points on a bezier arc
+        Vector2[] bezierArc;            // points on a bezier arc
         Cell[] cells;
         F26Dot6 shiftX, shiftY;         // the amount to translate incoming points
-        V24Dot8 subpixelPos;            // subpixel position of active point
-        int activeArea;                 // running total of the active cell's area
-        int activeCoverage;             // ditto for coverage
+        Vector2 subpixelPos;            // subpixel position of active point
+        float funitsToPixels;           // conversion factor from FUnits to pixels
+        float activeArea;               // running total of the active cell's area
+        float activeCoverage;           // ditto for coverage
         int cellX, cellY;               // pixel position of the active cell
         int cellCount;                  // number of cells in active use
         int scanlineCount;              // number of scanlines we're rendering
@@ -24,14 +26,14 @@ namespace SharpFont {
             cells = new Cell[1024];
             scanlines = new int[128];
             curveLevels = new int[32];
-            bezierArc = new V24Dot8[curveLevels.Length * 3 + 1];
+            bezierArc = new Vector2[curveLevels.Length * 3 + 1];
         }
 
         public void Clear () {
             scanlineCount = 0;
             cellCount = 0;
-            activeArea = 0;
-            activeCoverage = 0;
+            activeArea = 0.0f;
+            activeCoverage = 0.0f;
             cellActive = false;
         }
 
@@ -60,43 +62,43 @@ namespace SharpFont {
                 RetireActiveCell();
 
             // calculate cell coordinates
-            subpixelPos = new V24Dot8(point.X + shiftX, point.Y + shiftY);
-            cellX = Math.Max(minX - 1, Math.Min(subpixelPos.X.IntPart, maxX)) - minX;
-            cellY = subpixelPos.Y.IntPart - minY;
+            subpixelPos = new Vector2((int)(point.X + shiftX) / 64.0f, (int)(point.Y + shiftY) / 64.0f);
+            cellX = Math.Max(minX - 1, Math.Min((int)subpixelPos.X, maxX)) - minX;
+            cellY = (int)subpixelPos.Y - minY;
 
             // activate if this is a valid cell location
             cellActive = cellX < maxX && cellY < maxY;
-            activeArea = 0;
-            activeCoverage = 0;
+            activeArea = 0.0f;
+            activeCoverage = 0.0f;
         }
 
         public void LineTo (Point point) {
-            RenderLine(new V24Dot8(point.X + shiftX, point.Y + shiftY));
+            RenderLine(new Vector2((int)(point.X + shiftX) / 64.0f, (int)(point.Y + shiftY) / 64.0f));
         }
 
         public void QuadraticCurveTo (Point control, Point point) {
             var levels = curveLevels;
             var arc = bezierArc;
-            arc[0] = new V24Dot8(point.X + shiftX, point.Y + shiftY);
-            arc[1] = new V24Dot8(control.X + shiftX, control.Y + shiftY);
+            arc[0] = new Vector2((int)(point.X + shiftX) / 64.0f, (int)(point.Y + shiftY) / 64.0f);
+            arc[1] = new Vector2((int)(control.X + shiftX) / 64.0f, (int)(control.Y + shiftY) / 64.0f);
             arc[2] = subpixelPos;
-
-            var delta = FixedMath.Abs(arc[2] + arc[0] - 2 * arc[1]);
-            var dx = (int)delta.X;
-            if (dx < (int)delta.Y)
-                dx = (int)delta.Y;
+            
+            var delta = Vector2.Abs(arc[2] + arc[0] - 2 * arc[1]);
+            var dx = delta.X;
+            if (dx < delta.Y)
+                dx = delta.Y;
 
             // short cut for small arcs
-            if (dx < (int)F24Dot8.One / 4) {
+            if (dx < 0.25f) {
                 RenderLine(arc[0]);
                 return;
             }
 
             int level = 0;
             do {
-                dx >>= 2;
+                dx /= 4.0f;
                 level++;
-            } while (dx > (int)F24Dot8.One / 4);
+            } while (dx > 0.25f);
 
             int top = 0;
             int arcIndex = 0;
@@ -136,34 +138,34 @@ namespace SharpFont {
             var sc = scanlineCount;
             for (int y = 0; y < sc; y++) {
                 var x = 0;
-                var coverage = 0;
+                var coverage = 0.0f;
                 var index = scanlines[y];
 
                 while (index != -1) {
                     var cell = cells[index];
-                    if (cell.X > x && coverage != 0)
-                        FillHLine(x, y, coverage, cell.X - x);
+                    if (cell.X > x && coverage != 0.0f)
+                        FillHLine(x, y, (int)Math.Round(coverage * 255, MidpointRounding.AwayFromZero), cell.X - x);
 
                     coverage += cell.Coverage;
 
                     // cell.Area is in square subpixels, so we need to divide down
-                    var area = ((coverage << 9) - cell.Area) >> 9;
-                    if (area != 0 && cell.X >= 0)
-                        FillHLine(cell.X, y, area, 1);
+                    var area = coverage * 2.0f - cell.Area;
+                    if (area != 0.0f && cell.X >= 0)
+                        FillHLine(cell.X, y, (int)Math.Round(area * 255 / 2, MidpointRounding.AwayFromZero), 1);
 
                     x = cell.X + 1;
                     index = cell.Next;
                 }
 
-                if (coverage != 0)
-                    FillHLine(x, y, coverage, maxX - minX - x);
+                if (coverage != 0.0f)
+                    FillHLine(x, y, (int)Math.Round(coverage * 255, MidpointRounding.AwayFromZero), maxX - minX - x);
             }
         }
 
-        void RenderLine (V24Dot8 target) {
+        void RenderLine (Vector2 target) {
             // figure out which scanlines this line crosses
-            var startScanline = subpixelPos.Y.IntPart;
-            var endScanline = target.Y.IntPart;
+            var startScanline = (int)subpixelPos.Y;
+            var endScanline = (int)target.Y;
 
             // vertical clipping
             if (Math.Min(startScanline, endScanline) >= maxY ||
@@ -175,35 +177,35 @@ namespace SharpFont {
 
             // render the line
             var vector = target - subpixelPos;
-            var fringeStart = subpixelPos.Y.FracPart;
-            var fringeEnd = target.Y.FracPart;
+            var fringeStart = subpixelPos.Y - startScanline;
+            var fringeEnd = target.Y - endScanline;
 
             if (startScanline == endScanline) {
                 // this is a horizontal line
                 RenderScanline(startScanline, subpixelPos.X, fringeStart, target.X, fringeEnd);
             }
-            else if ((int)vector.X == 0) {
+            else if (vector.X == 0) {
                 // this is a vertical line
-                var xarea = (int)subpixelPos.X.FracPart << 1;
-                var x = subpixelPos.X.IntPart;
+                var x = (int)subpixelPos.X;
+                var xarea = (subpixelPos.X - x) * 2;
 
                 // check if we're scanning up or down
-                var first = F24Dot8.One;
+                var first = 1.0f;
                 var increment = 1;
-                if ((int)vector.Y < 0) {
-                    first = F24Dot8.Zero;
+                if (vector.Y < 0) {
+                    first = 0.0f;
                     increment = -1;
                 }
 
                 // first cell fringe
-                var deltaY = (int)(first - fringeStart);
+                var deltaY = (first - fringeStart);
                 activeArea += xarea * deltaY;
                 activeCoverage += deltaY;
                 startScanline += increment;
                 SetCurrentCell(x, startScanline);
 
                 // any other cells covered by the line
-                deltaY = (int)(first + first - F24Dot8.One);
+                deltaY = first + first - 1.0f;
                 var area = xarea * deltaY;
                 while (startScanline != endScanline) {
                     activeArea += area;
@@ -213,68 +215,66 @@ namespace SharpFont {
                 }
 
                 // ending fringe
-                deltaY = (int)(fringeEnd - F24Dot8.One + first);
+                deltaY = fringeEnd - 1.0f + first;
                 activeArea += xarea * deltaY;
                 activeCoverage += deltaY;
             }
             else {
                 // diagonal line
                 // check if we're scanning up or down
-                var dist = (F24Dot8.One - fringeStart) * vector.X;
-                var first = F24Dot8.One;
+                var dist = (1.0f - fringeStart) * vector.X;
+                var first = 1.0f;
                 var increment = 1;
-                if ((int)vector.Y < 0) {
+                if (vector.Y < 0) {
                     dist = fringeStart * vector.X;
-                    first = F24Dot8.Zero;
+                    first = 0.0f;
                     increment = -1;
                     vector.Y = -vector.Y;
                 }
 
                 // render the first scanline
-                F24Dot8 delta, mod;
+                float delta, mod;
                 FixedMath.DivMod(dist, vector.Y, out delta, out mod);
 
                 var x = subpixelPos.X + delta;
                 RenderScanline(startScanline, subpixelPos.X, fringeStart, x, first);
                 startScanline += increment;
-                SetCurrentCell(x.IntPart, startScanline);
+                SetCurrentCell((int)x, startScanline);
 
                 // step along the line
                 if (startScanline != endScanline) {
-                    F24Dot8 lift, rem;
-                    FixedMath.DivMod(F24Dot8.One * vector.X, vector.Y, out lift, out rem);
+                    float lift, rem;
+                    FixedMath.DivMod(vector.X, vector.Y, out lift, out rem);
                     mod -= vector.Y;
 
                     while (startScanline != endScanline) {
                         delta = lift;
                         mod += rem;
-                        if ((int)mod >= 0) {
+                        if (mod >= 0) {
                             mod -= vector.Y;
                             delta++;
                         }
 
                         var x2 = x + delta;
-                        RenderScanline(startScanline, x, F24Dot8.One - first, x2, first);
+                        RenderScanline(startScanline, x, 1.0f - first, x2, first);
                         x = x2;
 
                         startScanline += increment;
-                        SetCurrentCell(x.IntPart, startScanline);
+                        SetCurrentCell((int)x, startScanline);
                     }
                 }
 
                 // last scanline
-                RenderScanline(startScanline, x, F24Dot8.One - first, target.X, fringeEnd);
+                RenderScanline(startScanline, x, 1.0f - first, target.X, fringeEnd);
             }
 
             subpixelPos = target;
         }
 
         void FillHLine (int x, int y, int coverage, int length) {
-            if (coverage < 0)
-                coverage = -coverage;
-
             // non-zero winding rule
-            if (coverage >= 256)
+            coverage = Math.Abs(coverage);
+            if (coverage > 255)
                 coverage = 255;
             if (coverage == 0)
                 return;
@@ -299,22 +299,19 @@ namespace SharpFont {
                 bits += (surface.Height - 1) * surface.Pitch;
 
             for (; count > 0; count--, spans++) {
-                var coverage = spans->Coverage;
-                if (coverage == 0)
-                    continue;
-
                 // finally fill pixels
                 var p = bits + spans->X;
+                var coverage = spans->Coverage;
                 for (int i = 0; i < spans->Length; i++)
                     *p++ = (byte)coverage;
             }
         }
 
-        void RenderScanline (int scanline, F24Dot8 x1, F24Dot8 y1, F24Dot8 x2, F24Dot8 y2) {
-            var startCell = x1.IntPart;
-            var endCell = x2.IntPart;
-            var fringeStart = x1.FracPart;
-            var fringeEnd = x2.FracPart;
+        void RenderScanline (int scanline, float x1, float y1, float x2, float y2) {
+            var startCell = (int)x1;
+            var endCell = (int)x2;
+            var fringeStart = x1 - startCell;
+            var fringeEnd = x2 - endCell;
 
             // trivial case; exact same Y, down to the subpixel
             if (y1 == y2) {
@@ -324,8 +321,8 @@ namespace SharpFont {
 
             // trivial case; within the same cell
             if (startCell == endCell) {
-                var deltaY = (int)(y2 - y1);
-                activeArea += ((int)fringeStart + (int)fringeEnd) * deltaY;
+                var deltaY = y2 - y1;
+                activeArea += (fringeStart + fringeEnd) * deltaY;
                 activeCoverage += deltaY;
                 return;
             }
@@ -335,21 +332,21 @@ namespace SharpFont {
             var dy = y2 - y1;
 
             // check if we're going left or right
-            var dist = (F24Dot8.One - fringeStart) * dy;
-            var first = F24Dot8.One;
+            var dist = (1.0f - fringeStart) * dy;
+            var first = 1.0f;
             var increment = 1;
-            if ((int)dx < 0) {
+            if (dx < 0) {
                 dist = fringeStart * dy;
-                first = F24Dot8.Zero;
+                first = 0.0f;
                 increment = -1;
                 dx = -dx;
             }
 
             // update the first cell
-            F24Dot8 delta, mod;
+            float delta, mod;
             FixedMath.DivMod(dist, dx, out delta, out mod);
-            activeArea += (int)((fringeStart + first) * delta);
-            activeCoverage += (int)delta;
+            activeArea += (fringeStart + first) * delta;
+            activeCoverage += delta;
 
             startCell += increment;
             SetCurrentCell(startCell, scanline);
@@ -357,21 +354,21 @@ namespace SharpFont {
 
             // update all covered cells
             if (startCell != endCell) {
-                dist = F24Dot8.One * (y2 - y1 + delta);
-                F24Dot8 lift, rem;
+                dist = y2 - y1 + delta;
+                float lift, rem;
                 FixedMath.DivMod(dist, dx, out lift, out rem);
                 mod -= dx;
 
                 while (startCell != endCell) {
                     delta = lift;
                     mod += rem;
-                    if ((int)mod >= 0) {
+                    if (mod >= 0) {
                         mod -= dx;
                         delta++;
                     }
 
-                    activeArea += (int)(F24Dot8.One * delta);
-                    activeCoverage += (int)delta;
+                    activeArea += delta;
+                    activeCoverage += delta;
                     y1 += delta;
                     startCell += increment;
                     SetCurrentCell(startCell, scanline);
@@ -380,8 +377,8 @@ namespace SharpFont {
 
             // final cell
             delta = y2 - y1;
-            activeArea += (int)((fringeEnd + F24Dot8.One - first) * delta);
-            activeCoverage += (int)delta;
+            activeArea += (fringeEnd + 1.0f - first) * delta;
+            activeCoverage += delta;
         }
 
         void SetCurrentCell (int x, int y) {
@@ -396,8 +393,8 @@ namespace SharpFont {
                 if (cellActive)
                     RetireActiveCell();
 
-                activeArea = 0;
-                activeCoverage = 0;
+                activeArea = 0.0f;
+                activeCoverage = 0.0f;
                 cellX = x;
                 cellY = y;
             }
@@ -407,7 +404,7 @@ namespace SharpFont {
 
         void RetireActiveCell () {
             // cells with no coverage have nothing to do
-            if ((activeArea | activeCoverage) == 0)
+            if (activeArea == 0.0f && activeCoverage == 0.0f)
                 return;
 
             // find the right spot to add or insert this cell
@@ -458,8 +455,8 @@ namespace SharpFont {
         struct Cell {
             public int X;
             public int Next;
-            public int Coverage;
-            public int Area;
+            public float Coverage;
+            public float Area;
         }
 
         struct Span {

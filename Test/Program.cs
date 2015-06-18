@@ -26,7 +26,7 @@ namespace Test {
                 CompareRender(typeface, character, comparisonFile);
             }
 
-            //var surface = RenderGlyph(typeface, '3');
+            //var surface = RenderGlyph(typeface, '!');
             //SaveSurface(surface, "result.png");
         }
 
@@ -46,7 +46,7 @@ namespace Test {
                 for (int x = 0; x < surface.Width; x++) {
                     var a = *src++;
                     var b = *dest;
-                    if (Math.Abs(a - b) > 3)
+                    if (Math.Abs(a - b) > 1)
                         throw new Exception();
                     dest += 3;
                 }

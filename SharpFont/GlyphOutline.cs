@@ -5,6 +5,10 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace SharpFont {
+    struct FUnit {
+        int value;
+    }
+
     struct GlyphOutline {
         public Point[] Points;
         public PointType[] PointTypes;
