@@ -18,8 +18,7 @@ namespace SharpFont {
         int cellX, cellY;               // pixel position of the active cell
         int cellCount;                  // number of cells in active use
         int scanlineCount;              // number of scanlines we're rendering
-        int minX, minY;                 // bounds of the glyph surface, in plain old pixels
-        int maxX, maxY;
+        int maxX, maxY;                 // bounds of the glyph surface, in plain old pixels
         bool cellActive;                // whether the current cell has active data
 
         public Renderer () {
@@ -37,13 +36,11 @@ namespace SharpFont {
             cellActive = false;
         }
 
-        public void SetBounds (int minX, int minY, int maxX, int maxY) {
-            this.minX = minX;
-            this.minY = minY;
+        public void SetBounds (int maxX, int maxY) {
             this.maxX = maxX;
             this.maxY = maxY;
 
-            scanlineCount = maxY - minY;
+            scanlineCount = maxY;
             if (scanlineCount >= scanlines.Length)
                 scanlines = new int[scanlineCount];
 
@@ -63,8 +60,8 @@ namespace SharpFont {
 
             // calculate cell coordinates
             subpixelPos = new Vector2((int)(point.X + shiftX) / 64.0f, (int)(point.Y + shiftY) / 64.0f);
-            cellX = Math.Max(minX - 1, Math.Min((int)subpixelPos.X, maxX)) - minX;
-            cellY = (int)subpixelPos.Y - minY;
+            cellX = Math.Max(- 1, Math.Min((int)subpixelPos.X, maxX));
+            cellY = (int)subpixelPos.Y;
 
             // activate if this is a valid cell location
             cellActive = cellX < maxX && cellY < maxY;
@@ -158,7 +155,7 @@ namespace SharpFont {
                 }
 
                 if (coverage != 0.0f)
-                    FillHLine(x, y, (int)Math.Round(coverage * 255, MidpointRounding.AwayFromZero), maxX - minX - x);
+                    FillHLine(x, y, (int)Math.Round(coverage * 255, MidpointRounding.AwayFromZero), maxX - x);
             }
         }
 
@@ -169,7 +166,7 @@ namespace SharpFont {
 
             // vertical clipping
             if (Math.Min(startScanline, endScanline) >= maxY ||
-                Math.Max(startScanline, endScanline) < minY) {
+                Math.Max(startScanline, endScanline) < 0) {
                 // just save this position since it's outside our bounds and continue
                 subpixelPos = target;
                 return;
@@ -278,9 +275,7 @@ namespace SharpFont {
                 coverage = 255;
             if (coverage == 0)
                 return;
-
-            x += minX;
-            y += minY;
+            
             x = Math.Min(x, 32767);
 
             var span = new Span {
@@ -383,9 +378,7 @@ namespace SharpFont {
 
         void SetCurrentCell (int x, int y) {
             // all cells on the left of the clipping region go to the minX - 1 position
-            y -= minY;
             x = Math.Min(x, maxX);
-            x -= minX;
             x = Math.Max(x, -1);
 
             // moving to a new cell?

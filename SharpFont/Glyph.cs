@@ -78,18 +78,16 @@ namespace SharpFont {
             // shift down into integer pixel coordinates and clip
             // against the bounds of the passed in target surface
             cbox = FixedMath.Translate(cbox, shiftX, shiftY);
-            var minX = Math.Max(cbox.MinX.IntPart, 0);
-            var minY = Math.Max(cbox.MinY.IntPart, 0);
             var maxX = Math.Min(cbox.MaxX.IntPart, surface.Width);
             var maxY = Math.Min(cbox.MaxY.IntPart, surface.Height);
 
             // check if the entire thing was clipped
-            if (maxX - minX <= 0 || maxY - minY <= 0)
+            if (maxX <= 0 || maxY <= 0)
                 return;
 
             // prep the renderer
             renderer.Clear();
-            renderer.SetBounds(minX, minY, maxX, maxY);
+            renderer.SetBounds(maxX, maxY);
             renderer.SetOffset(shiftX, shiftY);
 
             // walk each contour of the outline and render it
