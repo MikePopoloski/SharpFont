@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -166,7 +167,6 @@ namespace SharpFont {
             // the last contour's endpoint is the number of points in the glyph
             var pointCount = lastEndpoint + 1;
             var points = new Point[pointCount];
-            var types = new PointType[pointCount];
 
             // read instruction data
             var instructionLength = reader.ReadUInt16BE();
@@ -204,7 +204,7 @@ namespace SharpFont {
                     delta = reader.ReadInt16BE();
 
                 x += delta;
-                points[i].X = (F26Dot6)x;
+                points[i].X = (FUnit)x;
             }
 
             var y = 0;
@@ -221,14 +221,13 @@ namespace SharpFont {
                     delta = reader.ReadInt16BE();
 
                 y += delta;
-                points[i].Y = (F26Dot6)y;
-                types[i] = (f & SimpleGlyphFlags.OnCurve) != 0 ? PointType.OnCurve : PointType.Quadratic;
+                points[i].Y = (FUnit)y;
+                points[i].Type = (f & SimpleGlyphFlags.OnCurve) != 0 ? PointType.OnCurve : PointType.Quadratic;
             }
 
             return new SimpleGlyph {
                 Outline = new GlyphOutline {
                     Points = points,
-                    PointTypes = types,
                     ContourEndpoints = contours
                 },
                 Instructions = instructions
@@ -259,21 +258,22 @@ namespace SharpFont {
 
                 // figure out the transform; we can either have no scale, a uniform
                 // scale, two independent scales, or a full 2x2 transform matrix
-                var transform = Matrix2x2.Identity;
+                // transform components are in 2.14 fixed point format
+                var transform = Matrix3x2.Identity;
                 if ((flags & CompositeGlyphFlags.HaveScale) != 0) {
-                    var scale = new F16Dot16((F2Dot14)reader.ReadInt16BE());
-                    transform.m11 = scale;
-                    transform.m22 = scale;
+                    var scale = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M11 = scale;
+                    transform.M22 = scale;
                 }
                 else if ((flags & CompositeGlyphFlags.HaveXYScale) != 0) {
-                    transform.m11 = new F16Dot16((F2Dot14)reader.ReadInt16BE());
-                    transform.m22 = new F16Dot16((F2Dot14)reader.ReadInt16BE());
+                    transform.M11 = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M22 = (float)(F2Dot14)reader.ReadInt16BE();
                 }
                 else if ((flags & CompositeGlyphFlags.HaveTransform) != 0) {
-                    transform.m11 = new F16Dot16((F2Dot14)reader.ReadInt16BE());
-                    transform.m12 = new F16Dot16((F2Dot14)reader.ReadInt16BE());
-                    transform.m21 = new F16Dot16((F2Dot14)reader.ReadInt16BE());
-                    transform.m22 = new F16Dot16((F2Dot14)reader.ReadInt16BE());
+                    transform.M11 = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M12 = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M21 = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M22 = (float)(F2Dot14)reader.ReadInt16BE();
                 }
 
                 subglyph.Transform = transform;
@@ -295,6 +295,8 @@ namespace SharpFont {
         static void Error (string message) {
             throw new Exception(message);
         }
+
+        const float F2Dot14ToFloat = 1.0f / (2 << 14);
     }
 
     struct FaceHeader {
@@ -353,7 +355,7 @@ namespace SharpFont {
     }
 
     struct Subglyph {
-        public Matrix2x2 Transform;
+        public Matrix3x2 Transform;
         public CompositeGlyphFlags Flags;
         public int Index;
         public int Arg1;

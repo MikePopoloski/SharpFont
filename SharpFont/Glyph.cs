@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -8,6 +9,8 @@ namespace SharpFont {
     public class Glyph {
         Typeface typeface;
         int glyphIndex;
+        int shiftX, shiftY;
+        float scale;
 
         public readonly float Left;
         public readonly float Top;
@@ -21,21 +24,18 @@ namespace SharpFont {
         internal Glyph (Typeface typeface, int glyphIndex, float scale) {
             this.typeface = typeface;
             this.glyphIndex = glyphIndex;
+            this.scale = scale;
 
-            var bbox = new BoundingBox {
-                MinX = new F26Dot6(int.MaxValue),
-                MinY = new F26Dot6(int.MaxValue),
-                MaxX = new F26Dot6(int.MinValue),
-                MaxY = new F26Dot6(int.MinValue)
-            };
-
+            var bbox = BoundingBox.Infinite;
             FindBoundingBox(typeface.Glyphs[glyphIndex], scale, ref bbox);
 
-            Width = (int)(bbox.MaxX - bbox.MinX) * scale;
-            Height = (int)(bbox.MaxY - bbox.MinY) * scale;
+            Width = (bbox.MaxX - bbox.MinX) * scale;
+            Height = (bbox.MaxY - bbox.MinY) * scale;
 
-            RenderWidth = (int)((int)(FixedMath.Ceiling(bbox.MaxX) - FixedMath.Floor(bbox.MinX)) * scale);
-            RenderHeight = (int)((int)(FixedMath.Ceiling(bbox.MaxY) - FixedMath.Floor(bbox.MinY)) * scale);
+            shiftX = (int)Math.Floor(bbox.MinX * scale);
+            shiftY = (int)Math.Floor(bbox.MinY * scale);
+            RenderWidth = (int)Math.Ceiling(bbox.MaxX * scale) - shiftX;
+            RenderHeight = (int)Math.Ceiling(bbox.MaxY * scale) - shiftY;
 
             //Left = left;
             //Top = top;
@@ -58,44 +58,30 @@ namespace SharpFont {
             }
 
             // otherwise, we have a simple glyph, so render it
-            var renderer = typeface.Renderer;
             var simple = (SimpleGlyph)glyph;
-            var outline = simple.Outline;
-            var points = outline.Points;
-            var contours = outline.ContourEndpoints;
-            var types = outline.PointTypes;
+            var points = simple.Outline.Points;
+            var contours = simple.Outline.ContourEndpoints;
 
             // check for an empty outline, which obviously results in an empty render
             if (points.Length <= 0 || contours.Length <= 0)
                 return;
 
-            // compute control box; we'll shift the glyph so that it's rendered
-            // with its bottom corner at the bottom left of the target surface
-            var cbox = FixedMath.ComputeControlBox(points);
-            var shiftX = -cbox.MinX;
-            var shiftY = -cbox.MinY;
-
-            // shift down into integer pixel coordinates and clip
-            // against the bounds of the passed in target surface
-            cbox = FixedMath.Translate(cbox, shiftX, shiftY);
-            var maxX = Math.Min(cbox.MaxX.IntPart, surface.Width);
-            var maxY = Math.Min(cbox.MaxY.IntPart, surface.Height);
-
-            // check if the entire thing was clipped
-            if (maxX <= 0 || maxY <= 0)
+            // clip against the bounds of the target surface
+            var width = Math.Min(RenderWidth, surface.Width);
+            var height = Math.Min(RenderHeight, surface.Height);
+            if (width <= 0 || height <= 0)
                 return;
 
             // prep the renderer
-            renderer.Clear();
-            renderer.SetBounds(maxX, maxY);
-            renderer.SetOffset(shiftX, shiftY);
+            var renderer = typeface.Renderer;
+            renderer.Start(width, height);
 
             // walk each contour of the outline and render it
             var firstIndex = 0;
             for (int i = 0; i < contours.Length; i++) {
                 // decompose the contour into drawing commands
                 var lastIndex = contours[i];
-                DecomposeContour(renderer, firstIndex, lastIndex, points, types);
+                DecomposeContour(renderer, firstIndex, lastIndex, points, Matrix3x2.CreateScale(scale));
 
                 // next contour starts where this one left off
                 firstIndex = lastIndex + 1;
@@ -123,66 +109,63 @@ namespace SharpFont {
             }
         }
 
-        static void DecomposeContour (Renderer renderer, int firstIndex, int lastIndex, Point[] points, PointType[] types) {
+        static void DecomposeContour (Renderer renderer, int firstIndex, int lastIndex, Point[] points, Matrix3x2 transform) {
             var pointIndex = firstIndex;
-            var type = types[pointIndex];
             var start = points[pointIndex];
             var end = points[lastIndex];
-            var control = start;
+            var startV = Vector2.Transform((Vector2)start, transform);
+            var control = startV;
+            
+            if (start.Type == PointType.Cubic)
+                throw new InvalidFontException("Contours can't start with a cubic control point.");
 
-            // contours can't start with a cubic control point.
-            if (type == PointType.Cubic)
-                return;
-
-            if (type == PointType.Quadratic) {
+            if (start.Type == PointType.Quadratic) {
                 // if first point is a control point, try using the last point
-                if (types[lastIndex] == PointType.OnCurve) {
+                if (end.Type == PointType.OnCurve) {
                     start = end;
                     lastIndex--;
                 }
                 else {
                     // if they're both control points, start at the middle
-                    start.X = (start.X + end.X) / 2;
-                    start.Y = (start.Y + end.Y) / 2;
+                    startV = (startV + Vector2.Transform((Vector2)end, transform)) / 2;
                 }
                 pointIndex--;
             }
 
             // let's draw this contour
-            renderer.MoveTo(start);
+            renderer.MoveTo(startV);
 
             var needClose = true;
             while (pointIndex < lastIndex) {
                 var point = points[++pointIndex];
-                switch (types[pointIndex]) {
+                var pointV = Vector2.Transform((Vector2)point, transform);
+                switch (point.Type) {
                     case PointType.OnCurve:
-                        renderer.LineTo(point);
+                        renderer.LineTo(pointV);
                         break;
 
                     case PointType.Quadratic:
-                        control = point;
+                        control = pointV;
                         var done = false;
                         while (pointIndex < lastIndex) {
-                            var v = points[++pointIndex];
-                            var t = types[pointIndex];
-                            if (t == PointType.OnCurve) {
-                                renderer.QuadraticCurveTo(control, v);
+                            var next = points[++pointIndex];
+                            var nextV = Vector2.Transform((Vector2)next, transform);
+                            if (next.Type == PointType.OnCurve) {
+                                renderer.QuadraticCurveTo(control, nextV);
                                 done = true;
                                 break;
                             }
-
-                            // this condition checks for garbage outlines
-                            if (t != PointType.Quadratic)
-                                return;
-
-                            var middle = new Point((control.X + v.X) / 2, (control.Y + v.Y) / 2);
-                            renderer.QuadraticCurveTo(control, middle);
-                            control = v;
+                            
+                            if (next.Type != PointType.Quadratic)
+                                throw new InvalidFontException("Bad outline data.");
+                            
+                            renderer.QuadraticCurveTo(control, (control + nextV) / 2);
+                            control = nextV;
                         }
 
-                        // if we hit this point, we're ready to close out the contour
                         if (!done) {
-                            renderer.QuadraticCurveTo(control, start);
+                            // if we hit this point, we're ready to close out the contour
+                            renderer.QuadraticCurveTo(control, startV);
                             needClose = false;
                         }
                         break;
@@ -193,7 +176,7 @@ namespace SharpFont {
             }
 
             if (needClose)
-                renderer.LineTo(start);
+                renderer.LineTo(startV);
         }
     }
 
