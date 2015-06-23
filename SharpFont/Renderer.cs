@@ -10,7 +10,7 @@ namespace SharpFont {
         int[] curveLevels;
         Vector2[] bezierArc;            // points on a bezier arc
         Cell[] cells;
-        Vector2 subpixelPos;            // subpixel position of active point
+        Vector2 activePoint;            // subpixel position of active point
         float activeArea;               // running total of the active cell's area
         float activeCoverage;           // ditto for coverage
         int cellX, cellY;               // pixel position of the active cell
@@ -33,7 +33,7 @@ namespace SharpFont {
             activeArea = 0.0f;
             activeCoverage = 0.0f;
             cellActive = false;
-            
+
             if (height >= scanlines.Length)
                 scanlines = new int[height];
 
@@ -47,9 +47,9 @@ namespace SharpFont {
                 RetireActiveCell();
 
             // calculate cell coordinates
-            subpixelPos = point;
-            cellX = Math.Max(-1, Math.Min((int)subpixelPos.X, width));
-            cellY = (int)subpixelPos.Y;
+            activePoint = point;
+            cellX = Math.Max(-1, Math.Min((int)activePoint.X, width));
+            cellY = (int)activePoint.Y;
 
             // activate if this is a valid cell location
             cellActive = cellX < width && cellY < height;
@@ -58,121 +58,31 @@ namespace SharpFont {
         }
 
         public void LineTo (Vector2 point) {
-            RenderLine(point);
-        }
-
-        public void QuadraticCurveTo (Vector2 control, Vector2 point) {
-            var levels = curveLevels;
-            var arc = bezierArc;
-            arc[0] = point;
-            arc[1] = control;
-            arc[2] = subpixelPos;
-
-            var delta = Vector2.Abs(arc[2] + arc[0] - 2 * arc[1]);
-            var dx = delta.X;
-            if (dx < delta.Y)
-                dx = delta.Y;
-
-            // short cut for small arcs
-            if (dx < 0.25f) {
-                RenderLine(arc[0]);
-                return;
-            }
-
-            int level = 0;
-            do {
-                dx /= 4.0f;
-                level++;
-            } while (dx > 0.25f);
-
-            int top = 0;
-            int arcIndex = 0;
-            levels[0] = level;
-
-            while (top >= 0) {
-                level = levels[top];
-                if (level > 0) {
-                    // split the arc
-                    arc[arcIndex + 4] = arc[arcIndex + 2];
-                    var b = arc[arcIndex + 1];
-                    var a = arc[arcIndex + 3] = (arc[arcIndex + 2] + b) / 2;
-                    b = arc[arcIndex + 1] = (arc[arcIndex] + b) / 2;
-                    arc[arcIndex + 2] = (a + b) / 2;
-
-                    arcIndex += 2;
-                    top++;
-                    levels[top] = levels[top - 1] = level - 1;
-                }
-                else {
-                    RenderLine(arc[arcIndex]);
-                    top--;
-                    arcIndex -= 2;
-                }
-            }
-        }
-
-        public void BlitTo (Surface surface) {
-            if (cellActive)
-                RetireActiveCell();
-
-            // if we rendered nothing, there's nothing to do
-            if (cellCount == 0)
-                return;
-
-            this.surface = surface;
-            for (int y = 0; y < height; y++) {
-                var x = 0;
-                var coverage = 0.0f;
-                var index = scanlines[y];
-
-                while (index != -1) {
-                    // cap off the previous span, if we had one
-                    var cell = cells[index];
-                    if (cell.X > x && coverage != 0.0f)
-                        FillHLine(x, y, coverage, cell.X - x);
-
-                    coverage += cell.Coverage;
-
-                    var area = coverage - (cell.Area / 2.0f);
-                    if (area != 0.0f && cell.X >= 0)
-                        FillHLine(cell.X, y, area, 1);
-
-                    x = cell.X + 1;
-                    index = cell.Next;
-                }
-
-                // finish off the trailing span
-                if (coverage != 0.0f)
-                    FillHLine(x, y, coverage, width - x);
-            }
-        }
-
-        void RenderLine (Vector2 target) {
             // figure out which scanlines this line crosses
-            var startScanline = (int)subpixelPos.Y;
-            var endScanline = (int)target.Y;
+            var startScanline = (int)activePoint.Y;
+            var endScanline = (int)point.Y;
 
             // vertical clipping
             if (Math.Min(startScanline, endScanline) >= height ||
                 Math.Max(startScanline, endScanline) < 0) {
                 // just save this position since it's outside our bounds and continue
-                subpixelPos = target;
+                activePoint = point;
                 return;
             }
 
             // render the line
-            var vector = target - subpixelPos;
-            var fringeStart = subpixelPos.Y - startScanline;
-            var fringeEnd = target.Y - endScanline;
+            var vector = point - activePoint;
+            var fringeStart = activePoint.Y - startScanline;
+            var fringeEnd = point.Y - endScanline;
 
             if (startScanline == endScanline) {
                 // this is a horizontal line
-                RenderScanline(startScanline, subpixelPos.X, fringeStart, target.X, fringeEnd);
+                RenderScanline(startScanline, activePoint.X, fringeStart, point.X, fringeEnd);
             }
             else if (vector.X == 0) {
                 // this is a vertical line
-                var x = (int)subpixelPos.X;
-                var xarea = (subpixelPos.X - x) * 2;
+                var x = (int)activePoint.X;
+                var xarea = (activePoint.X - x) * 2;
 
                 // check if we're scanning up or down
                 var first = 1.0f;
@@ -219,8 +129,8 @@ namespace SharpFont {
 
                 // render the first scanline
                 var delta = dist / vector.Y;
-                var x = subpixelPos.X + delta;
-                RenderScanline(startScanline, subpixelPos.X, fringeStart, x, first);
+                var x = activePoint.X + delta;
+                RenderScanline(startScanline, activePoint.X, fringeStart, x, first);
                 startScanline += increment;
                 SetCurrentCell((int)x, startScanline);
 
@@ -238,10 +148,96 @@ namespace SharpFont {
                 }
 
                 // last scanline
-                RenderScanline(startScanline, x, 1.0f - first, target.X, fringeEnd);
+                RenderScanline(startScanline, x, 1.0f - first, point.X, fringeEnd);
             }
 
-            subpixelPos = target;
+            activePoint = point;
+        }
+
+        public void QuadraticCurveTo (Vector2 control, Vector2 point) {
+            var levels = curveLevels;
+            var arc = bezierArc;
+            arc[0] = point;
+            arc[1] = control;
+            arc[2] = activePoint;
+
+            var delta = Vector2.Abs(arc[2] + arc[0] - 2 * arc[1]);
+            var dx = delta.X;
+            if (dx < delta.Y)
+                dx = delta.Y;
+
+            // short cut for small arcs
+            if (dx < 0.25f) {
+                LineTo(arc[0]);
+                return;
+            }
+
+            int level = 0;
+            do {
+                dx /= 4.0f;
+                level++;
+            } while (dx > 0.25f);
+
+            int top = 0;
+            int arcIndex = 0;
+            levels[0] = level;
+
+            while (top >= 0) {
+                level = levels[top];
+                if (level > 0) {
+                    // split the arc
+                    arc[arcIndex + 4] = arc[arcIndex + 2];
+                    var b = arc[arcIndex + 1];
+                    var a = arc[arcIndex + 3] = (arc[arcIndex + 2] + b) / 2;
+                    b = arc[arcIndex + 1] = (arc[arcIndex] + b) / 2;
+                    arc[arcIndex + 2] = (a + b) / 2;
+
+                    arcIndex += 2;
+                    top++;
+                    levels[top] = levels[top - 1] = level - 1;
+                }
+                else {
+                    LineTo(arc[arcIndex]);
+                    top--;
+                    arcIndex -= 2;
+                }
+            }
+        }
+
+        public void BlitTo (Surface surface) {
+            if (cellActive)
+                RetireActiveCell();
+
+            // if we rendered nothing, there's nothing to do
+            if (cellCount == 0)
+                return;
+
+            this.surface = surface;
+            for (int y = 0; y < height; y++) {
+                var x = 0;
+                var coverage = 0.0f;
+                var index = scanlines[y];
+
+                while (index != -1) {
+                    // cap off the previous span, if we had one
+                    var cell = cells[index];
+                    if (cell.X > x && coverage != 0.0f)
+                        FillHLine(x, y, coverage, cell.X - x);
+
+                    coverage += cell.Coverage;
+
+                    var area = coverage - (cell.Area / 2.0f);
+                    if (area != 0.0f && cell.X >= 0)
+                        FillHLine(cell.X, y, area, 1);
+
+                    x = cell.X + 1;
+                    index = cell.Next;
+                }
+
+                // finish off the trailing span
+                if (coverage != 0.0f)
+                    FillHLine(x, y, coverage, width - x);
+            }
         }
 
         void FillHLine (int x, int y, float coveragePercentage, int length) {
@@ -251,7 +247,7 @@ namespace SharpFont {
 
             coverage = Math.Min(Math.Abs(coverage), 255);
             var c = (byte)coverage;
-            
+
             // find the scanline offset
             var bits = (byte*)surface.Bits - y * surface.Pitch;
             if (surface.Pitch >= 0)

@@ -17,17 +17,17 @@ namespace Test {
         static void Main (string[] args) {
             var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
 
-            //for (int c = 33; c < 127; c++) {
-            //    var character = (char)c;
-            //    if (InvalidChars.Contains(character))
-            //        continue;
+            for (int c = 33; c < 127; c++) {
+                var character = (char)c;
+                if (InvalidChars.Contains(character))
+                    continue;
 
-            //    var comparisonFile = Path.Combine(ComparisonPath, new string(character, char.IsUpper(character) ? 2 : 1) + ".png");
-            //    CompareRender(typeface, character, comparisonFile);
-            //}
+                var comparisonFile = Path.Combine(ComparisonPath, new string(character, char.IsUpper(character) ? 2 : 1) + ".png");
+                CompareRender(typeface, character, comparisonFile);
+            }
 
-            var surface = RenderGlyph(typeface, '!');
-            SaveSurface(surface, "result.png");
+            //var surface = RenderGlyph(typeface, '@');
+            //SaveSurface(surface, "result.png");
         }
 
         static void CompareRender (Typeface typeface, char c, string comparisonFile) {
@@ -46,8 +46,8 @@ namespace Test {
                 for (int x = 0; x < surface.Width; x++) {
                     var a = *src++;
                     var b = *dest;
-                    //if (Math.Abs(a - b) > 1)
-                    //    throw new Exception();
+                    if (Math.Abs(a - b) > 15)
+                        throw new Exception();
                     dest += 3;
                 }
             }

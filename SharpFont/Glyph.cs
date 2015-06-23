@@ -76,12 +76,16 @@ namespace SharpFont {
             var renderer = typeface.Renderer;
             renderer.Start(width, height);
 
+            // get the total transform for the glyph
+            var transform = Matrix3x2.CreateScale(scale);
+            transform.Translation = new Vector2(-shiftX, -shiftY);
+
             // walk each contour of the outline and render it
             var firstIndex = 0;
             for (int i = 0; i < contours.Length; i++) {
                 // decompose the contour into drawing commands
                 var lastIndex = contours[i];
-                DecomposeContour(renderer, firstIndex, lastIndex, points, Matrix3x2.CreateScale(scale));
+                DecomposeContour(renderer, firstIndex, lastIndex, points, transform);
 
                 // next contour starts where this one left off
                 firstIndex = lastIndex + 1;
