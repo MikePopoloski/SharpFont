@@ -160,8 +160,8 @@ namespace SharpFont {
 
                     // translate all child points
                     if (offset != Vector2.Zero) {
-                        for (int i = currentPoints; i < basePoints.Count; i++)
-                            basePoints[i].Offset(offset);
+                        //for (int i = currentPoints; i < basePoints.Count; i++)
+                          //  basePoints[i].Offset(offset);
                     }
                 }
             }
@@ -188,6 +188,8 @@ namespace SharpFont {
         public CodePoint (char highSurrogate, char lowSurrogate) {
             value = char.ConvertToUtf32(highSurrogate, lowSurrogate);
         }
+
+        public override string ToString () => $"{value} ({(char)value})";
 
         public static explicit operator CodePoint (int codePoint) => new CodePoint(codePoint);
         public static implicit operator CodePoint (char character) => new CodePoint(character);

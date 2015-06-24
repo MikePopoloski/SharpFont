@@ -10,24 +10,16 @@ namespace Test {
     unsafe class Program {
         const string ComparisonPath = "../../../../font_rasters/";
 
-        static readonly HashSet<char> InvalidChars = new HashSet<char> {
-            '"', '*', '/', ':', '<', '>', '?'
-        };
-
         static void Main (string[] args) {
             var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
 
-            //for (int c = 33; c < 127; c++) {
-            //    var character = (char)c;
-            //    if (InvalidChars.Contains(character))
-            //        continue;
+            for (int c = 33; c < 127; c++) {
+                var comparisonFile = Path.Combine(ComparisonPath, c + ".png");
+                CompareRender(typeface, (char)c, comparisonFile);
+            }
 
-            //    var comparisonFile = Path.Combine(ComparisonPath, new string(character, char.IsUpper(character) ? 2 : 1) + ".png");
-            //    CompareRender(typeface, character, comparisonFile);
-            //}
-
-            var surface = RenderGlyph(typeface, 'I');
-            SaveSurface(surface, "result.png");
+            //var surface = RenderGlyph(typeface, 'I');
+            //SaveSurface(surface, "result.png");
         }
 
         static void CompareRender (Typeface typeface, char c, string comparisonFile) {

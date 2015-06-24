@@ -112,7 +112,7 @@ namespace SharpFont {
                 var idRangeOffset = reader.ReadUInt16BE();
                 if (idRangeOffset != 0) {
                     var currentOffset = reader.Position;
-                    reader.Seek(currentOffset + idRangeOffset);
+                    reader.Seek(currentOffset + idRangeOffset - sizeof(ushort));
 
                     var end = endCount[i];
                     var delta = idDelta[i];

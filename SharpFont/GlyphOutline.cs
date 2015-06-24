@@ -73,6 +73,8 @@ namespace SharpFont {
 
         public void Offset (Vector2 offset) => P += offset;
 
+        public override string ToString () => $"{P} ({Type})";
+
         public static implicit operator Vector2 (PointF p) => p.P;
     }
 
