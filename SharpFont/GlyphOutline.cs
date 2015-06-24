@@ -62,6 +62,20 @@ namespace SharpFont {
         public static explicit operator Vector2 (Point p) => new Vector2((int)p.X, (int)p.Y);
     }
 
+    struct PointF {
+        public Vector2 P;
+        public PointType Type;
+
+        public PointF (Vector2 position, PointType type) {
+            P = position;
+            Type = type;
+        }
+
+        public void Offset (Vector2 offset) => P += offset;
+
+        public static implicit operator Vector2 (PointF p) => p.P;
+    }
+
     enum PointType {
         OnCurve,
         Quadratic,

@@ -388,7 +388,8 @@ namespace SharpFont {
         HaveXYScale = 0x40,
         HaveTransform = 0x80,
         HaveInstructions = 0x100,
-        UseMetrics = 0x200
+        UseMetrics = 0x200,
+        ScaledComponentOffset = 0x800
     }
 
     [Flags]
