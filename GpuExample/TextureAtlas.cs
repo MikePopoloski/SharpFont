@@ -8,6 +8,8 @@ namespace GpuExample {
         Texture texture;
         ResizableArray<Vector4> regions;
 
+        public Texture Texture => texture;
+
         public TextureAtlas (int size) {
             packer = new BinPacker(size, size);
             texture = Texture.Create2D(size, size, 1, TextureFormat.R8);
