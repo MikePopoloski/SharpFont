@@ -16,32 +16,15 @@ namespace GpuExample {
             regions = new ResizableArray<Vector4>(256);
         }
 
-        public unsafe int AddRegion (int width, int height, IntPtr source) {
+        public Vector4 GetRegion (int index) => regions[index];
+
+        public unsafe int AddRegion (int width, int height, MemoryBlock data) {
             // try to find a spot for the region
             var rect = packer.Insert(width, height);
             if (rect.Height == 0)
                 return -1;
 
-            var count = width * height;
-            var mem = new MemoryBlock(count);
-            var dest = mem.Data;
-
-            if (rect.Width == width)
-                Buffer.MemoryCopy((void*)source, (void*)dest, count, count);
-            else {
-                // the packer can flip the region 90 degrees, so handle that when blitting
-                var sourcePtr = (byte*)source;
-                var destPtrBase = (byte*)dest;
-                for (int y = 0; y < height; y++) {
-                    var destPtr = destPtrBase + height - y;
-                    for (int x = 0; x < width; x++) {
-                        *destPtr = *sourcePtr++;
-                        destPtr += width;
-                    }
-                }
-            }
-
-            texture.Update2D(0, rect.X, rect.Y, rect.Width, rect.Height, mem, rect.Width);
+            texture.Update2D(0, rect.X, rect.Y, rect.Width, rect.Height, data, rect.Width);
 
             var pageWidth = (float)texture.Width;
             var pageHeight = (float)texture.Height;
@@ -78,6 +61,8 @@ namespace GpuExample {
             return rect.X >= X && rect.Y >= Y &&
                    rect.Right <= Right && rect.Bottom <= Bottom;
         }
+
+        public override string ToString () => $"{X}, {Y}, {Width}, {Height}";
     }
 
     struct ResizableArray<T> {
@@ -120,28 +105,27 @@ namespace GpuExample {
 
             var count = freeList.Count;
             for (int i = 0; i < count; i++) {
-                // first try to place the rectangle in upright orientation
+                // try to place the rect
                 var rect = freeList[i];
-                TryFit(ref rect, width, height, ref bestNode, ref bestShortFit, ref bestLongFit);
+                if (rect.Width < width || rect.Height < height)
+                    continue;
 
-                // now try it flipped over
-                if (rect.Width >= height && rect.Height >= width) {
-                    var leftoverX = Math.Abs(rect.Width - height);
-                    var leftoverY = Math.Abs(rect.Height - width);
-                    var shortFit = Math.Min(leftoverX, leftoverY);
-                    var longFit = Math.Max(leftoverX, leftoverY);
+                var leftoverX = Math.Abs(rect.Width - width);
+                var leftoverY = Math.Abs(rect.Height - height);
+                var shortFit = Math.Min(leftoverX, leftoverY);
+                var longFit = Math.Max(leftoverX, leftoverY);
 
-                    if (shortFit < bestShortFit || (shortFit == bestShortFit && longFit < bestLongFit)) {
-                        bestNode = new Rect(rect.X, rect.Y, width, height);
-                        bestShortFit = shortFit;
-                        bestLongFit = longFit;
-                    }
+                if (shortFit < bestShortFit || (shortFit == bestShortFit && longFit < bestLongFit)) {
+                    bestNode = new Rect(rect.X, rect.Y, width, height);
+                    bestShortFit = shortFit;
+                    bestLongFit = longFit;
                 }
             }
 
             if (bestNode.Height == 0)
                 return bestNode;
 
+            // split out free areas into smaller ones
             for (int i = 0; i < count; i++) {
                 if (SplitFreeNode(freeList[i], bestNode)) {
                     freeList.RemoveAt(i);
@@ -150,7 +134,24 @@ namespace GpuExample {
                 }
             }
 
-            PruneFreeList();
+            // prune the freelist
+            for (int i = 0; i < freeList.Count; i++) {
+                for (int j = i + 1; j < freeList.Count; j++) {
+                    var idata = freeList[i];
+                    var jdata = freeList[j];
+                    if (jdata.Contains(idata)) {
+                        freeList.RemoveAt(i);
+                        i--;
+                        break;
+                    }
+
+                    if (idata.Contains(jdata)) {
+                        freeList.RemoveAt(j);
+                        j--;
+                    }
+                }
+            }
+
             return bestNode;
         }
 
@@ -196,41 +197,6 @@ namespace GpuExample {
             }
 
             return true;
-        }
-
-        void PruneFreeList () {
-            for (int i = 0; i < freeList.Count; i++) {
-                for (int j = i + 1; j < freeList.Count; j++) {
-                    var idata = freeList[i];
-                    var jdata = freeList[j];
-                    if (jdata.Contains(idata)) {
-                        freeList.RemoveAt(i);
-                        i--;
-                        break;
-                    }
-
-                    if (idata.Contains(jdata)) {
-                        freeList.RemoveAt(j);
-                        j--;
-                    }
-                }
-            }
-        }
-
-        static void TryFit (ref Rect rect, int width, int height, ref Rect bestNode, ref int bestShortFit, ref int bestLongFit) {
-            if (rect.Width < width || rect.Height < height)
-                return;
-
-            var leftoverX = Math.Abs(rect.Width - width);
-            var leftoverY = Math.Abs(rect.Height - height);
-            var shortFit = Math.Min(leftoverX, leftoverY);
-            var longFit = Math.Max(leftoverX, leftoverY);
-
-            if (shortFit < bestShortFit || (shortFit == bestShortFit && longFit < bestLongFit)) {
-                bestNode = new Rect(rect.X, rect.Y, width, height);
-                bestShortFit = shortFit;
-                bestLongFit = longFit;
-            }
         }
     }
 }

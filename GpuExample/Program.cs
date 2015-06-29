@@ -28,29 +28,20 @@ namespace GpuExample {
             var atlas = new TextureAtlas(4096);
 
             var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
-            var buffer = new TextBuffer();
-            buffer.Append(atlas, typeface, "Hello World!");
+            var buffer = new TextBuffer(128);
+            buffer.Append(atlas, typeface, "Hello, World!");
 
-            Bgfx.SetViewTransform(0, Matrix4x4.Identity, Matrix4x4.Identity);
+            
+
+            Bgfx.SetViewTransform(0, Matrix4x4.Identity, Matrix4x4.CreateOrthographicOffCenter(0, 1280, 720, 0, -1.0f, 1.0f));
 
             // main loop
             while (window.ProcessEvents(ResetFlags.Vsync)) {
                 Bgfx.SetViewRect(0, 0, 0, window.Width, window.Height);
-
-                var vb = new TransientVertexBuffer(6, PosColorTexture.Layout);
-                var ptr = (PosColorTexture*)vb.Data;
-                *ptr++ = new PosColorTexture(-Vector2.One, Vector2.UnitY / 8, -1);
-                *ptr++ = new PosColorTexture(new Vector2(1.0f, -1.0f), Vector2.One / 8, -1);
-                *ptr++ = new PosColorTexture(Vector2.One, Vector2.UnitX / 8, -1);
-                *ptr++ = new PosColorTexture(-Vector2.One, Vector2.UnitY / 8, -1);
-                *ptr++ = new PosColorTexture(Vector2.One, Vector2.UnitX / 8, -1);
-                *ptr++ = new PosColorTexture(new Vector2(-1.0f, 1.0f), Vector2.Zero / 8, -1);
-
-                Bgfx.SetVertexBuffer(vb);
+                
                 Bgfx.SetTexture(0, u_texColor, atlas.Texture);
                 Bgfx.SetProgram(fontProgram);
-                Bgfx.SetRenderState(RenderState.ColorWrite | RenderState.AlphaWrite | RenderState.BlendFunction(RenderState.BlendSourceAlpha, RenderState.BlendOne));
-                Bgfx.Submit(0);
+                buffer.Submit();
                 
                 Bgfx.Frame();
             }

@@ -110,12 +110,17 @@ namespace SharpFont {
                 SeekToTable(reader, records, FourCC.Loca, required: true);
                 SfntTables.ReadLoca(reader, faceHeader.IndexFormat, loca, faceHeader.GlyphCount);
 
-                // read in all glyphs
+                // we need to know the length of the glyf table because of some weirdness in the loca table:
+                // if a glyph is "missing" (like a space character), then its loca[n] entry is equal to loca[n+1]
+                // if the last glyph in the set is missing, then loca[n] == glyf table length
                 SeekToTable(reader, records, FourCC.Glyf);
                 var glyfOffset = reader.Position;
+                var glyfLength = records[FindTable(records, FourCC.Glyf)].Length;
+
+                // read in all glyphs
                 glyphTable = new BaseGlyph[faceHeader.GlyphCount];
                 for (int i = 0; i < glyphTable.Length; i++)
-                    ReadGlyph(reader, i, 0, glyphTable, glyfOffset, loca);
+                    ReadGlyph(reader, i, 0, glyphTable, glyfOffset, glyfLength, loca);
             }
 
             // metrics calculations: if the UseTypographicMetrics flag is set, then
@@ -180,7 +185,10 @@ namespace SharpFont {
             return offsets;
         }
 
-        static void ReadGlyph (DataReader reader, int glyphIndex, int recursionDepth, BaseGlyph[] glyphTable, uint glyfOffset, uint* loca) {
+        static void ReadGlyph (
+            DataReader reader, int glyphIndex, int recursionDepth,
+            BaseGlyph[] glyphTable, uint glyfOffset, uint glyfLength, uint* loca
+        ) {
             // check if this glyph has already been loaded; this can happen
             // if we're recursively loading subglyphs as part of a composite
             if (glyphTable[glyphIndex] != null)
@@ -190,16 +198,24 @@ namespace SharpFont {
             if (recursionDepth > MaxRecursion)
                 Error("Bad font data; infinite composite recursion.");
 
-            // seek to the right spot and load the header
-            reader.Seek(glyfOffset + loca[glyphIndex]);
-            var header = SfntTables.ReadGlyphHeader(reader);
-            var contours = header.ContourCount;
-            if (contours < -1 || contours > MaxContours)
-                Error("Invalid number of contours for glyph.");
-
-            if (contours == 0) {
+            // check if this glyph doesn't have any actual data
+            int contours;
+            var offset = loca[glyphIndex];
+            if ((glyphIndex < glyphTable.Length - 1 && offset == loca[glyphIndex + 1]) || offset >= glyfLength) {
+                // this is an empty glyph, so synthesize a header
+                contours = 0;
             }
-            else if (contours > 0) {
+            else {
+                // seek to the right spot and load the header
+                reader.Seek(glyfOffset + loca[glyphIndex]);
+                var header = SfntTables.ReadGlyphHeader(reader);
+
+                contours = header.ContourCount;
+                if (contours < -1 || contours > MaxContours)
+                    Error("Invalid number of contours for glyph.");
+            }
+
+            if (contours > 0) {
                 // positive contours means a simple glyph
                 glyphTable[glyphIndex] = SfntTables.ReadSimpleGlyph(reader, contours);
             }
@@ -210,9 +226,18 @@ namespace SharpFont {
 
                 // read each subglyph recrusively
                 for (int i = 0; i < subglyphs.Length; i++)
-                    ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable, glyfOffset, loca);
+                    ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable, glyfOffset, glyfLength, loca);
 
                 glyphTable[glyphIndex] = composite;
+            }
+            else {
+                // no data, so synthesize an empty glyph
+                glyphTable[glyphIndex] = new SimpleGlyph {
+                    Outline = new GlyphOutline {
+                        Points = new Point[0],
+                        ContourEndpoints = new int[0]
+                    }
+                };
             }
         }
 
@@ -220,13 +245,7 @@ namespace SharpFont {
             throw new Exception(message);
         }
 
-        static int MulFix (int a, int b) {
-            var c = (long)a * b;
-            c += 0x8000 + (c >> 63);
-            return (int)(c >> 16);
-        }
-
-        static bool SeekToTable (DataReader reader, TableRecord[] records, FourCC tag, bool required = false) {
+        static int FindTable (TableRecord[] records, FourCC tag) {
             var index = -1;
             for (int i = 0; i < records.Length; i++) {
                 if (records[i].Tag == tag) {
@@ -235,7 +254,12 @@ namespace SharpFont {
                 }
             }
 
-            // check if we found the desired table and that it's not empty
+            return index;
+        }
+
+        static bool SeekToTable (DataReader reader, TableRecord[] records, FourCC tag, bool required = false) {
+            // check if we have the desired table and that it's not empty
+            var index = FindTable(records, tag);
             if (index == -1 || records[index].Length == 0) {
                 if (required)
                     Error($"Missing or empty '{tag}' table.");

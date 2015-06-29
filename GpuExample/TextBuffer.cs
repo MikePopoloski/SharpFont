@@ -3,25 +3,48 @@ using SharpFont;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace GpuExample {
-    class TextBuffer {
-        MemoryBlock vertexMem;
+    unsafe class TextBuffer {
         IndexBuffer indexBuffer;
-        DynamicVertexBuffer vertexBuffers;
+        DynamicVertexBuffer vertexBuffer;
+        int count;
 
-        public TextBuffer () {
+        public TextBuffer (int capacity) {
+            var indexMem = new MemoryBlock(sizeof(ushort) * capacity * 6);
+            var indices = (ushort*)indexMem.Data;
+            for (int i = 0, v = 0; i < capacity; i++, v += 4) {
+                *indices++ = (ushort)(v + 0);
+                *indices++ = (ushort)(v + 1);
+                *indices++ = (ushort)(v + 2);
+                *indices++ = (ushort)(v + 2);
+                *indices++ = (ushort)(v + 3);
+                *indices++ = (ushort)(v + 0);
+            }
+
+            indexBuffer = new IndexBuffer(indexMem);
         }
 
         public unsafe void Append (TextureAtlas atlas, Typeface typeface, string text) {
+            var memBlock = new MemoryBlock(text.Length * 6 * PosColorTexture.Layout.Stride);
+            var mem = (PosColorTexture*)memBlock.Data;
+
+            var pen = new Vector2(8, 32);
+
             foreach (var c in text) {
                 var glyph = typeface.GetGlyph(c, 32.0f);
+                if (glyph.RenderWidth == 0 || glyph.RenderHeight == 0) {
+                    pen.X += 16;
+                    continue;
+                }
 
+                var memory = new MemoryBlock(glyph.RenderWidth * glyph.RenderHeight);
                 var surface = new Surface {
-                    Bits = Marshal.AllocHGlobal(glyph.RenderWidth * glyph.RenderHeight),
+                    Bits = memory.Data,
                     Width = glyph.RenderWidth,
                     Height = glyph.RenderHeight,
                     Pitch = glyph.RenderWidth
@@ -33,10 +56,29 @@ namespace GpuExample {
 
                 glyph.RenderTo(surface);
 
-                atlas.AddRegion(surface.Width, surface.Height, surface.Bits);
+                var index = atlas.AddRegion(surface.Width, surface.Height, memory);
 
-                Marshal.FreeHGlobal(surface.Bits);
+                var region = atlas.GetRegion(index);
+                var width = region.Z * 4096;
+                var height = region.W * -4096;
+                
+                *mem++ = new PosColorTexture(pen, new Vector2(region.X, region.Y + region.W), -1);
+                *mem++ = new PosColorTexture(pen + new Vector2(width, 0), new Vector2(region.X + region.Z, region.Y + region.W), -1);
+                *mem++ = new PosColorTexture(pen + new Vector2(width, height), new Vector2(region.X + region.Z, region.Y), -1);
+                *mem++ = new PosColorTexture(pen + new Vector2(0, height), new Vector2(region.X, region.Y), -1);
+
+                pen.X += width + 2;
+                count++;
             }
+
+            vertexBuffer = new DynamicVertexBuffer(memBlock, PosColorTexture.Layout);
+        }
+
+        public void Submit () {
+            Bgfx.SetVertexBuffer(vertexBuffer, count * 4);
+            Bgfx.SetIndexBuffer(indexBuffer, 0, count * 6);
+            Bgfx.SetRenderState(RenderState.ColorWrite | RenderState.AlphaWrite | RenderState.BlendFunction(RenderState.BlendSourceAlpha, RenderState.BlendOne));
+            Bgfx.Submit(0);
         }
     }
 }
