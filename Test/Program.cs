@@ -22,7 +22,7 @@ namespace Test {
             //SaveSurface(surface, "result.png");
         }
 
-        static void CompareRender (Typeface typeface, char c, string comparisonFile) {
+        static void CompareRender (FontFace typeface, char c, string comparisonFile) {
             var surface = RenderGlyph(typeface, c);
 
             // compare against FreeType renders
@@ -49,7 +49,7 @@ namespace Test {
             Marshal.FreeHGlobal(surface.Bits);
         }
 
-        static Surface RenderGlyph (Typeface typeface, char c) {
+        static Surface RenderGlyph (FontFace typeface, char c) {
             var glyph = typeface.GetGlyph(c, 32);
             var surface = new Surface {
                 Bits = Marshal.AllocHGlobal(glyph.RenderWidth * glyph.RenderHeight),
@@ -88,7 +88,7 @@ namespace Test {
             Marshal.FreeHGlobal(surface.Bits);
         }
 
-        static Typeface LoadTypeface (string fileName) {
+        static FontFace LoadTypeface (string fileName) {
             using (var file = File.OpenRead(fileName))
             using (var loader = new FontReader(file))
                 return loader.ReadFace();

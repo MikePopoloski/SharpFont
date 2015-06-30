@@ -22,7 +22,7 @@ namespace SharpFont {
             faceOffsets = SfntTables.ReadTTCHeader(reader);
         }
 
-        public Typeface ReadFace (int faceIndex = 0) {
+        public FontFace ReadFace (int faceIndex = 0) {
             if (faceIndex >= faceOffsets.Length)
                 throw new ArgumentOutOfRangeException(nameof(faceIndex));
 
@@ -152,7 +152,7 @@ namespace SharpFont {
 
             // build the final font face; all data has been copied
             // out of the font file so we can close it after this
-            return new Typeface(
+            return new FontFace(
                 faceHeader.UnitsPerEm, cellAscent, cellDescent, lineHeight, os2Data.XHeight,
                 os2Data.CapHeight, underlineSize, underlinePosition, strikeoutSize,
                 strikeoutPosition, os2Data.Weight, os2Data.Stretch, os2Data.Style,

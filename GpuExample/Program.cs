@@ -50,7 +50,7 @@ namespace GpuExample {
             Bgfx.Shutdown();
         }
 
-        static Typeface LoadTypeface (string fileName) {
+        static FontFace LoadTypeface (string fileName) {
             using (var file = File.OpenRead(fileName))
             using (var loader = new FontReader(file))
                 return loader.ReadFace();

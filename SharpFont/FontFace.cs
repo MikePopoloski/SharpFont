@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace SharpFont {
-    public class Typeface {
+    public class FontFace {
         Renderer renderer = new Renderer();
         BaseGlyph[] glyphs;
         MetricsEntry[] hmetrics;
@@ -34,7 +34,7 @@ namespace SharpFont {
         public FontStretch Stretch => stretch;
         public FontStyle Style => style;
 
-        internal Typeface (
+        internal FontFace (
             int unitsPerEm, int cellAscent, int cellDescent, int lineHeight, int xHeight,
             int capHeight, int underlineSize, int underlinePosition, int strikeoutSize,
             int strikeoutPosition, FontWeight weight, FontStretch stretch, FontStyle style,

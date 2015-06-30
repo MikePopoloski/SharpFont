@@ -29,7 +29,7 @@ namespace GpuExample {
             indexBuffer = new IndexBuffer(indexMem);
         }
 
-        public unsafe void Append (TextureAtlas atlas, Typeface typeface, string text) {
+        public unsafe void Append (TextureAtlas atlas, FontFace typeface, string text) {
             var memBlock = new MemoryBlock(text.Length * 6 * PosColorTexture.Layout.Stride);
             var mem = (PosColorTexture*)memBlock.Data;
 
