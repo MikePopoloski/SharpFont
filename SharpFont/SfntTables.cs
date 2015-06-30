@@ -1,13 +1,31 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SharpFont {
     // raw SFNT container table reading routines
     unsafe static class SfntTables {
+        public static uint[] ReadTTCHeader (DataReader reader) {
+            // read the file header; if we have a collection, we want to
+            // figure out where all the different faces are in the file
+            // if we don't have a collection, there's just one font in the file
+            var tag = reader.ReadUInt32();
+            if (tag != FourCC.Ttcf)
+                return new[] { 0u };
+
+            // font file is a TrueType collection; read the TTC header
+            reader.Skip(4);     // version number
+            var count = reader.ReadUInt32BE();
+            if (count == 0 || count > MaxFontsInCollection)
+                throw new InvalidFontException("Invalid TTC header");
+
+            var offsets = new uint[count];
+            for (int i = 0; i < count; i++)
+                offsets[i] = reader.ReadUInt32BE();
+
+            return offsets;
+        }
+
         public static void ReadHead (DataReader reader, out FaceHeader header) {
             // 'head' table contains global information for the font face
             // we only care about a few fields in it
@@ -126,6 +144,8 @@ namespace SharpFont {
             // we just want the number of glyphs
             reader.Skip(sizeof(int));
             header.GlyphCount = reader.ReadUInt16BE();
+            if (header.GlyphCount > MaxGlyphs)
+                throw new InvalidFontException("Font contains too many glyphs.");
         }
 
         public static void ReadLoca (DataReader reader, IndexFormat format, uint* table, int count) {
@@ -140,7 +160,89 @@ namespace SharpFont {
             }
         }
 
-        public static GlyphHeader ReadGlyphHeader (DataReader reader) {
+        public static int FindTable (TableRecord[] records, FourCC tag) {
+            var index = -1;
+            for (int i = 0; i < records.Length; i++) {
+                if (records[i].Tag == tag) {
+                    index = i;
+                    break;
+                }
+            }
+
+            return index;
+        }
+
+        public static bool SeekToTable (DataReader reader, TableRecord[] records, FourCC tag, bool required = false) {
+            // check if we have the desired table and that it's not empty
+            var index = FindTable(records, tag);
+            if (index == -1 || records[index].Length == 0) {
+                if (required)
+                    throw new InvalidFontException($"Missing or empty '{tag}' table.");
+                return false;
+            }
+
+            // seek to the appropriate offset
+            reader.Seek(records[index].Offset);
+            return true;
+        }
+
+        public static void ReadGlyph (
+            DataReader reader, int glyphIndex, int recursionDepth,
+            BaseGlyph[] glyphTable, uint glyfOffset, uint glyfLength, uint* loca
+        ) {
+            // check if this glyph has already been loaded; this can happen
+            // if we're recursively loading subglyphs as part of a composite
+            if (glyphTable[glyphIndex] != null)
+                return;
+
+            // prevent bad font data from causing infinite recursion
+            if (recursionDepth > MaxRecursion)
+                throw new InvalidFontException("Bad font data; infinite composite recursion.");
+
+            // check if this glyph doesn't have any actual data
+            int contours;
+            var offset = loca[glyphIndex];
+            if ((glyphIndex < glyphTable.Length - 1 && offset == loca[glyphIndex + 1]) || offset >= glyfLength) {
+                // this is an empty glyph, so synthesize a header
+                contours = 0;
+            }
+            else {
+                // seek to the right spot and load the header
+                reader.Seek(glyfOffset + loca[glyphIndex]);
+                var header = ReadGlyphHeader(reader);
+
+                contours = header.ContourCount;
+                if (contours < -1 || contours > MaxContours)
+                    throw new InvalidFontException("Invalid number of contours for glyph.");
+            }
+
+            if (contours > 0) {
+                // positive contours means a simple glyph
+                glyphTable[glyphIndex] = ReadSimpleGlyph(reader, contours);
+            }
+            else if (contours == -1) {
+                // -1 means composite glyph
+                var composite = ReadCompositeGlyph(reader);
+                var subglyphs = composite.Subglyphs;
+
+                // read each subglyph recrusively
+                for (int i = 0; i < subglyphs.Length; i++)
+                    ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable, glyfOffset, glyfLength, loca);
+
+                glyphTable[glyphIndex] = composite;
+            }
+            else {
+                // no data, so synthesize an empty glyph
+                glyphTable[glyphIndex] = new SimpleGlyph {
+                    Outline = new GlyphOutline {
+                        Points = new Point[0],
+                        ContourEndpoints = new int[0]
+                    }
+                };
+            }
+        }
+
+        static GlyphHeader ReadGlyphHeader (DataReader reader) {
             return new GlyphHeader {
                 ContourCount = reader.ReadInt16BE(),
                 MinX = reader.ReadInt16BE(),
@@ -150,7 +252,7 @@ namespace SharpFont {
             };
         }
 
-        public static SimpleGlyph ReadSimpleGlyph (DataReader reader, int contourCount) {
+        static SimpleGlyph ReadSimpleGlyph (DataReader reader, int contourCount) {
             // read contour endpoints
             var contours = new int[contourCount];
             var lastEndpoint = reader.ReadUInt16BE();
@@ -159,7 +261,7 @@ namespace SharpFont {
                 var endpoint = reader.ReadUInt16BE();
                 contours[i] = endpoint;
                 if (contours[i] <= lastEndpoint)
-                    Error("Glyph contour endpoints are unordered.");
+                    throw new InvalidFontException("Glyph contour endpoints are unordered.");
 
                 lastEndpoint = endpoint;
             }
@@ -234,7 +336,7 @@ namespace SharpFont {
             };
         }
 
-        public static CompositeGlyph ReadCompositeGlyph (DataReader reader) {
+        static CompositeGlyph ReadCompositeGlyph (DataReader reader) {
             // we need to keep reading glyphs for as long as
             // our flags tell us that there are more to read
             var subglyphs = new List<Subglyph>();
@@ -292,11 +394,19 @@ namespace SharpFont {
             return result;
         }
 
-        static void Error (string message) {
-            throw new Exception(message);
-        }
+        const int MaxGlyphs = short.MaxValue;
+        const int MaxContours = 256;
+        const int MaxRecursion = 128;
+        const int MaxFontsInCollection = 64;
+    }
 
-        const float F2Dot14ToFloat = 1.0f / (2 << 14);
+    struct TableRecord {
+        public FourCC Tag;
+        public uint CheckSum;
+        public uint Offset;
+        public uint Length;
+
+        public override string ToString () => Tag.ToString();
     }
 
     struct FaceHeader {
@@ -415,5 +525,49 @@ namespace SharpFont {
     enum IndexFormat {
         Short,
         Long
+    }
+
+    // helper wrapper around 4CC codes for debugging purposes
+    struct FourCC {
+        uint value;
+
+        public FourCC (uint value) {
+            this.value = value;
+        }
+
+        public FourCC (string str) {
+            if (str.Length != 4)
+                throw new InvalidOperationException("Invalid FourCC code");
+            value = str[0] | ((uint)str[1] << 8) | ((uint)str[2] << 16) | ((uint)str[3] << 24);
+        }
+
+        public override string ToString () {
+            return new string(new[] {
+                    (char)(value & 0xff),
+                    (char)((value >> 8) & 0xff),
+                    (char)((value >> 16) & 0xff),
+                    (char)(value >> 24)
+                });
+        }
+
+        public static implicit operator FourCC (string value) => new FourCC(value);
+        public static implicit operator FourCC (uint value) => new FourCC(value);
+        public static implicit operator uint (FourCC fourCC) => fourCC.value;
+
+        public static readonly FourCC Otto = "OTTO";
+        public static readonly FourCC True = "true";
+        public static readonly FourCC Ttcf = "ttcf";
+        public static readonly FourCC Typ1 = "typ1";
+        public static readonly FourCC Head = "head";
+        public static readonly FourCC Maxp = "maxp";
+        public static readonly FourCC Post = "post";
+        public static readonly FourCC OS_2 = "OS/2";
+        public static readonly FourCC Hhea = "hhea";
+        public static readonly FourCC Hmtx = "hmtx";
+        public static readonly FourCC Vhea = "vhea";
+        public static readonly FourCC Vmtx = "vmtx";
+        public static readonly FourCC Loca = "loca";
+        public static readonly FourCC Glyf = "glyf";
+        public static readonly FourCC Cmap = "cmap";
     }
 }

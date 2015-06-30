@@ -46,7 +46,6 @@
     <Compile Include="Glyph.cs" />
     <Compile Include="InvalidFontException.cs" />
     <Compile Include="Typeface.cs" />
-    <Compile Include="FourCC.cs" />
     <Compile Include="GlyphOutline.cs" />
     <Compile Include="FixedMath.cs" />
     <Compile Include="Renderer.cs" />

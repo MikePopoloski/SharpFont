@@ -18,10 +18,8 @@ namespace SharpFont {
         public FontReader (Stream stream) {
             reader = new DataReader(stream);
 
-            // read the file header; if we have a collection, we want to
-            // figure out where all the different faces are in the file
-            // if we don't have a collection, there's just one font in the file
-            faceOffsets = ReadTTCHeader(reader) ?? new[] { 0u };
+
+            faceOffsets = SfntTables.ReadTTCHeader(reader);
         }
 
         public Typeface ReadFace (int faceIndex = 0) {
@@ -49,46 +47,44 @@ namespace SharpFont {
             }
 
             // read the face header
-            SeekToTable(reader, records, FourCC.Head, required: true);
+            SfntTables.SeekToTable(reader, records, FourCC.Head, required: true);
             FaceHeader faceHeader;
             SfntTables.ReadHead(reader, out faceHeader);
             if (faceHeader.UnitsPerEm == 0)
                 Error("Invalid 'head' table.");
 
             // max position table has a bunch of limits defined in it
-            SeekToTable(reader, records, FourCC.Maxp, required: true);
+            SfntTables.SeekToTable(reader, records, FourCC.Maxp, required: true);
             SfntTables.ReadMaxp(reader, ref faceHeader);
-            if (faceHeader.GlyphCount > MaxGlyphs)
-                Error("Font contains too many glyphs.");
 
             // random junk is stuffed into the PostScript table
-            if (SeekToTable(reader, records, FourCC.Post))
+            if (SfntTables.SeekToTable(reader, records, FourCC.Post))
                 SfntTables.ReadPost(reader, ref faceHeader);
 
             // horizontal metrics header
-            SeekToTable(reader, records, FourCC.Hhea, required: true);
+            SfntTables.SeekToTable(reader, records, FourCC.Hhea, required: true);
             var hMetrics = SfntTables.ReadMetricsHeader(reader);
 
             // horizontal metrics table
-            SeekToTable(reader, records, FourCC.Hmtx, required: true);
+            SfntTables.SeekToTable(reader, records, FourCC.Hmtx, required: true);
             var horizontal = SfntTables.ReadMetricsTable(reader, faceHeader.GlyphCount, hMetrics.MetricCount);
 
             // font might optionally have vertical metrics
             MetricsEntry[] vertical = null;
-            if (SeekToTable(reader, records, FourCC.Vhea)) {
+            if (SfntTables.SeekToTable(reader, records, FourCC.Vhea)) {
                 var vMetrics = SfntTables.ReadMetricsHeader(reader);
 
-                SeekToTable(reader, records, FourCC.Vmtx, required: true);
+                SfntTables.SeekToTable(reader, records, FourCC.Vmtx, required: true);
                 vertical = SfntTables.ReadMetricsTable(reader, faceHeader.GlyphCount, vMetrics.MetricCount);
             }
 
             // OS/2 table has even more metrics
-            SeekToTable(reader, records, FourCC.OS_2, required: true);
+            SfntTables.SeekToTable(reader, records, FourCC.OS_2, required: true);
             OS2Data os2Data;
             SfntTables.ReadOS2(reader, out os2Data);
 
             // read character-to-glyph mapping tables
-            SeekToTable(reader, records, FourCC.Cmap, required: true);
+            SfntTables.SeekToTable(reader, records, FourCC.Cmap, required: true);
             var cmap = CharacterMap.ReadCmap(reader);
 
 
@@ -104,23 +100,23 @@ namespace SharpFont {
 
             // load glyphs if we have them
             BaseGlyph[] glyphTable = null;
-            if (SeekToTable(reader, records, FourCC.Glyf)) {
+            if (SfntTables.SeekToTable(reader, records, FourCC.Glyf)) {
                 // read in the loca table, which tells us the byte offset of each glyph
                 var loca = stackalloc uint[faceHeader.GlyphCount];
-                SeekToTable(reader, records, FourCC.Loca, required: true);
+                SfntTables.SeekToTable(reader, records, FourCC.Loca, required: true);
                 SfntTables.ReadLoca(reader, faceHeader.IndexFormat, loca, faceHeader.GlyphCount);
 
                 // we need to know the length of the glyf table because of some weirdness in the loca table:
                 // if a glyph is "missing" (like a space character), then its loca[n] entry is equal to loca[n+1]
                 // if the last glyph in the set is missing, then loca[n] == glyf table length
-                SeekToTable(reader, records, FourCC.Glyf);
+                SfntTables.SeekToTable(reader, records, FourCC.Glyf);
                 var glyfOffset = reader.Position;
-                var glyfLength = records[FindTable(records, FourCC.Glyf)].Length;
+                var glyfLength = records[SfntTables.FindTable(records, FourCC.Glyf)].Length;
 
                 // read in all glyphs
                 glyphTable = new BaseGlyph[faceHeader.GlyphCount];
                 for (int i = 0; i < glyphTable.Length; i++)
-                    ReadGlyph(reader, i, 0, glyphTable, glyfOffset, glyfLength, loca);
+                    SfntTables.ReadGlyph(reader, i, 0, glyphTable, glyfOffset, glyfLength, loca);
             }
 
             // metrics calculations: if the UseTypographicMetrics flag is set, then
@@ -167,123 +163,20 @@ namespace SharpFont {
 
         public void Dispose () => reader.Dispose();
 
-        static uint[] ReadTTCHeader (DataReader reader) {
-            var tag = reader.ReadUInt32();
-            if (tag != FourCC.Ttcf)
-                return null;
+        
 
-            // font file is a TrueType collection; read the TTC header
-            reader.Skip(4);     // version number
-            var count = reader.ReadUInt32BE();
-            if (count == 0 || count > MaxFontsInCollection)
-                Error("Invalid TTC header");
-
-            var offsets = new uint[count];
-            for (int i = 0; i < count; i++)
-                offsets[i] = reader.ReadUInt32BE();
-
-            return offsets;
-        }
-
-        static void ReadGlyph (
-            DataReader reader, int glyphIndex, int recursionDepth,
-            BaseGlyph[] glyphTable, uint glyfOffset, uint glyfLength, uint* loca
-        ) {
-            // check if this glyph has already been loaded; this can happen
-            // if we're recursively loading subglyphs as part of a composite
-            if (glyphTable[glyphIndex] != null)
-                return;
-
-            // prevent bad font data from causing infinite recursion
-            if (recursionDepth > MaxRecursion)
-                Error("Bad font data; infinite composite recursion.");
-
-            // check if this glyph doesn't have any actual data
-            int contours;
-            var offset = loca[glyphIndex];
-            if ((glyphIndex < glyphTable.Length - 1 && offset == loca[glyphIndex + 1]) || offset >= glyfLength) {
-                // this is an empty glyph, so synthesize a header
-                contours = 0;
-            }
-            else {
-                // seek to the right spot and load the header
-                reader.Seek(glyfOffset + loca[glyphIndex]);
-                var header = SfntTables.ReadGlyphHeader(reader);
-
-                contours = header.ContourCount;
-                if (contours < -1 || contours > MaxContours)
-                    Error("Invalid number of contours for glyph.");
-            }
-
-            if (contours > 0) {
-                // positive contours means a simple glyph
-                glyphTable[glyphIndex] = SfntTables.ReadSimpleGlyph(reader, contours);
-            }
-            else if (contours == -1) {
-                // -1 means composite glyph
-                var composite = SfntTables.ReadCompositeGlyph(reader);
-                var subglyphs = composite.Subglyphs;
-
-                // read each subglyph recrusively
-                for (int i = 0; i < subglyphs.Length; i++)
-                    ReadGlyph(reader, subglyphs[i].Index, recursionDepth + 1, glyphTable, glyfOffset, glyfLength, loca);
-
-                glyphTable[glyphIndex] = composite;
-            }
-            else {
-                // no data, so synthesize an empty glyph
-                glyphTable[glyphIndex] = new SimpleGlyph {
-                    Outline = new GlyphOutline {
-                        Points = new Point[0],
-                        ContourEndpoints = new int[0]
-                    }
-                };
-            }
-        }
+        
 
         static void Error (string message) {
             throw new Exception(message);
         }
 
-        static int FindTable (TableRecord[] records, FourCC tag) {
-            var index = -1;
-            for (int i = 0; i < records.Length; i++) {
-                if (records[i].Tag == tag) {
-                    index = i;
-                    break;
-                }
-            }
+        
 
-            return index;
-        }
+        
 
-        static bool SeekToTable (DataReader reader, TableRecord[] records, FourCC tag, bool required = false) {
-            // check if we have the desired table and that it's not empty
-            var index = FindTable(records, tag);
-            if (index == -1 || records[index].Length == 0) {
-                if (required)
-                    Error($"Missing or empty '{tag}' table.");
-                return false;
-            }
-
-            // seek to the appropriate offset
-            reader.Seek(records[index].Offset);
-            return true;
-        }
-
-        struct TableRecord {
-            public FourCC Tag;
-            public uint CheckSum;
-            public uint Offset;
-            public uint Length;
-
-            public override string ToString () => Tag.ToString();
-        }
-
-        const int MaxGlyphs = short.MaxValue;
-        const int MaxContours = 256;
-        const int MaxRecursion = 128;
-        const int MaxFontsInCollection = 64;
+        
+        
         const uint TTFv1 = 0x10000;
         const uint TTFv2 = 0x20000;
     }
