@@ -1,11 +1,7 @@
-﻿using SharpFont;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SharpFont {
     public class FontFace {
@@ -158,7 +154,7 @@ namespace SharpFont {
             var points = new List<PointF>(32);
             var contours = new List<int>(32);
             var transform = Matrix3x2.CreateScale(ComputeScale(pixelSize));
-            ComposeGlyphs(glyphs[glyphIndex], 0, ref transform, points, contours);
+            Geometry.ComposeGlyphs(glyphIndex, 0, ref transform, points, contours, glyphs);
 
             return new Glyph(renderer, points.ToArray(), contours.ToArray());
 
@@ -177,58 +173,6 @@ namespace SharpFont {
             //    (int)(cbox.MaxY - cbox.MinY) * scale,
             //    horizontal.Advance * scale
             //);
-        }
-
-        void ComposeGlyphs (BaseGlyph glyph, int startPoint, ref Matrix3x2 transform, List<PointF> basePoints, List<int> baseContours) {
-            var simple = glyph as SimpleGlyph;
-            if (simple != null) {
-                baseContours.AddRange(simple.Outline.ContourEndpoints);
-                foreach (var point in simple.Outline.Points)
-                    basePoints.Add(new PointF(Vector2.TransformNormal((Vector2)point, transform), point.Type));
-            }
-            else {
-                // otherwise, we have a composite glyph
-                var composite = (CompositeGlyph)glyph;
-                foreach (var subglyph in composite.Subglyphs) {
-                    // if we have a scale, update the local transform
-                    var local = transform;
-                    bool haveScale = (subglyph.Flags & (CompositeGlyphFlags.HaveScale | CompositeGlyphFlags.HaveXYScale | CompositeGlyphFlags.HaveTransform)) != 0;
-                    if (haveScale)
-                        local = transform * subglyph.Transform;
-
-                    // recursively compose the subglyph into our lists
-                    int currentPoints = basePoints.Count;
-                    ComposeGlyphs(glyphs[subglyph.Index], currentPoints, ref local, basePoints, baseContours);
-
-                    // calculate the offset for the subglyph. we have to do offsetting after composing all subglyphs,
-                    // because we might need to find the offset based on previously composed points by index
-                    Vector2 offset;
-                    if ((subglyph.Flags & CompositeGlyphFlags.ArgsAreXYValues) != 0) {
-                        offset = (Vector2)new Point((FUnit)subglyph.Arg1, (FUnit)subglyph.Arg2);
-                        if (haveScale && (subglyph.Flags & CompositeGlyphFlags.ScaledComponentOffset) != 0)
-                            offset = Vector2.TransformNormal(offset, local);
-                        else
-                            offset = Vector2.TransformNormal(offset, transform);
-
-                        // if the RoundXYToGrid flag is set, round the offset components
-                        if ((subglyph.Flags & CompositeGlyphFlags.RoundXYToGrid) != 0)
-                            offset = new Vector2((float)Math.Round(offset.X), (float)Math.Round(offset.Y));
-                    }
-                    else {
-                        // if the offsets are not given in FUnits, then they are point indices
-                        // in the currently composed base glyph that we should match up
-                        var p1 = basePoints[subglyph.Arg1 + startPoint];
-                        var p2 = basePoints[subglyph.Arg2 + currentPoints];
-                        offset = p1.P - p2.P;
-                    }
-
-                    // translate all child points
-                    if (offset != Vector2.Zero) {
-                        //for (int i = currentPoints; i < basePoints.Count; i++)
-                        //  basePoints[i].Offset(offset);
-                    }
-                }
-            }
         }
 
         float ComputeScale (float pixelSize) {

@@ -66,14 +66,14 @@ namespace SharpFont {
             var height = Math.Min(RenderHeight, surface.Height);
             if (width <= 0 || height <= 0)
                 return;
-            
+
             // walk each contour of the outline and render it
             var firstIndex = 0;
             renderer.Start(width, height);
             for (int i = 0; i < contours.Length; i++) {
                 // decompose the contour into drawing commands
                 var lastIndex = contours[i];
-                DecomposeContour(renderer, firstIndex, lastIndex, points);
+                Geometry.DecomposeContour(renderer, firstIndex, lastIndex, points);
 
                 // next contour starts where this one left off
                 firstIndex = lastIndex + 1;
@@ -81,73 +81,6 @@ namespace SharpFont {
 
             // blit the result to the target surface
             renderer.BlitTo(surface);
-        }
-        
-        static void DecomposeContour (Renderer renderer, int firstIndex, int lastIndex, PointF[] points) {
-            var pointIndex = firstIndex;
-            var start = points[pointIndex];
-            var end = points[lastIndex];
-            var control = start;
-
-            if (start.Type == PointType.Cubic)
-                throw new InvalidFontException("Contours can't start with a cubic control point.");
-
-            if (start.Type == PointType.Quadratic) {
-                // if first point is a control point, try using the last point
-                if (end.Type == PointType.OnCurve) {
-                    start = end;
-                    lastIndex--;
-                }
-                else {
-                    // if they're both control points, start at the middle
-                    start.P = (start.P + end.P) / 2;
-                }
-                pointIndex--;
-            }
-
-            // let's draw this contour
-            renderer.MoveTo(start);
-
-            var needClose = true;
-            while (pointIndex < lastIndex) {
-                var point = points[++pointIndex];
-                switch (point.Type) {
-                    case PointType.OnCurve:
-                        renderer.LineTo(point);
-                        break;
-
-                    case PointType.Quadratic:
-                        control = point;
-                        var done = false;
-                        while (pointIndex < lastIndex) {
-                            var next = points[++pointIndex];
-                            if (next.Type == PointType.OnCurve) {
-                                renderer.QuadraticCurveTo(control, next);
-                                done = true;
-                                break;
-                            }
-
-                            if (next.Type != PointType.Quadratic)
-                                throw new InvalidFontException("Bad outline data.");
-
-                            renderer.QuadraticCurveTo(control, (control.P + next.P) / 2);
-                            control = next;
-                        }
-
-                        if (!done) {
-                            // if we hit this point, we're ready to close out the contour
-                            renderer.QuadraticCurveTo(control, start);
-                            needClose = false;
-                        }
-                        break;
-
-                    case PointType.Cubic:
-                        throw new NotSupportedException();
-                }
-            }
-
-            if (needClose)
-                renderer.LineTo(start);
         }
     }
 

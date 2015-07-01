@@ -269,10 +269,8 @@ namespace SharpFont {
             else {
                 // no data, so synthesize an empty glyph
                 glyphTable[glyphIndex] = new SimpleGlyph {
-                    Outline = new GlyphOutline {
-                        Points = new Point[0],
-                        ContourEndpoints = new int[0]
-                    }
+                    Points = new Point[0],
+                    ContourEndpoints = new int[0]
                 };
             }
         }
@@ -363,10 +361,8 @@ namespace SharpFont {
             }
 
             return new SimpleGlyph {
-                Outline = new GlyphOutline {
-                    Points = points,
-                    ContourEndpoints = contours
-                },
+                Points = points,
+                ContourEndpoints = contours,
                 Instructions = instructions
             };
         }
@@ -498,7 +494,8 @@ namespace SharpFont {
     }
 
     class SimpleGlyph : BaseGlyph {
-        public GlyphOutline Outline;
+        public Point[] Points;
+        public int[] ContourEndpoints;
     }
 
     struct Subglyph {
