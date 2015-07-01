@@ -1,6 +1,7 @@
 ﻿using SharpFont;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text;
@@ -8,58 +9,121 @@ using System.Threading.Tasks;
 
 namespace SharpFont {
     public class FontFace {
-        Renderer renderer = new Renderer();
-        BaseGlyph[] glyphs;
-        MetricsEntry[] hmetrics;
-        MetricsEntry[] vmetrics;
-        CharacterMap charMap;
-        FontWeight weight;
-        FontStretch stretch;
-        FontStyle style;
-        int cellAscent;
-        int cellDescent;
-        int lineHeight;
-        int xHeight;
-        int capHeight;
-        int underlineSize;
-        int underlinePosition;
-        int strikeoutSize;
-        int strikeoutPosition;
-        int unitsPerEm;
-        bool isFixedWidth;
-        bool integerPpems;
+        readonly Renderer renderer = new Renderer();
+        readonly BaseGlyph[] glyphs;
+        readonly MetricsEntry[] hmetrics;
+        readonly MetricsEntry[] vmetrics;
+        readonly CharacterMap charMap;
+        readonly FontWeight weight;
+        readonly FontStretch stretch;
+        readonly FontStyle style;
+        readonly int cellAscent;
+        readonly int cellDescent;
+        readonly int lineHeight;
+        readonly int xHeight;
+        readonly int capHeight;
+        readonly int underlineSize;
+        readonly int underlinePosition;
+        readonly int strikeoutSize;
+        readonly int strikeoutPosition;
+        readonly int unitsPerEm;
+        readonly bool isFixedWidth;
+        readonly bool integerPpems;
 
         public bool IsFixedWidth => isFixedWidth;
         public FontWeight Weight => weight;
         public FontStretch Stretch => stretch;
         public FontStyle Style => style;
 
-        internal FontFace (
-            int unitsPerEm, int cellAscent, int cellDescent, int lineHeight, int xHeight,
-            int capHeight, int underlineSize, int underlinePosition, int strikeoutSize,
-            int strikeoutPosition, FontWeight weight, FontStretch stretch, FontStyle style,
-            BaseGlyph[] glyphs, MetricsEntry[] hmetrics, MetricsEntry[] vmetrics,
-            CharacterMap charMap, bool isFixedWidth, bool integerPpems
-        ) {
-            this.unitsPerEm = unitsPerEm;
-            this.cellAscent = cellAscent;
-            this.cellDescent = cellDescent;
-            this.lineHeight = lineHeight;
-            this.xHeight = xHeight;
-            this.capHeight = capHeight;
-            this.underlineSize = underlineSize;
-            this.underlinePosition = underlinePosition;
-            this.strikeoutSize = strikeoutSize;
-            this.strikeoutPosition = strikeoutPosition;
-            this.weight = weight;
-            this.stretch = stretch;
-            this.style = style;
-            this.hmetrics = hmetrics;
-            this.vmetrics = vmetrics;
-            this.charMap = charMap;
-            this.isFixedWidth = isFixedWidth;
-            this.integerPpems = integerPpems;
-            this.glyphs = glyphs;
+        unsafe public FontFace (Stream stream) {
+            // read the face header and table records
+            using (var reader = new DataReader(stream)) {
+                var tables = SfntTables.ReadFaceHeader(reader);
+
+                // read head and maxp tables for font metadata and limits
+                var head = SfntTables.ReadHead(reader, tables);
+                SfntTables.ReadMaxp(reader, tables, ref head);
+                unitsPerEm = head.UnitsPerEm;
+                integerPpems = (head.Flags & HeadFlags.IntegerPpem) != 0;
+
+                // horizontal metrics header and data
+                SfntTables.SeekToTable(reader, tables, FourCC.Hhea, required: true);
+                var hMetricsHeader = SfntTables.ReadMetricsHeader(reader);
+                SfntTables.SeekToTable(reader, tables, FourCC.Hmtx, required: true);
+                hmetrics = SfntTables.ReadMetricsTable(reader, head.GlyphCount, hMetricsHeader.MetricCount);
+
+                // font might optionally have vertical metrics
+                if (SfntTables.SeekToTable(reader, tables, FourCC.Vhea)) {
+                    var vMetricsHeader = SfntTables.ReadMetricsHeader(reader);
+
+                    SfntTables.SeekToTable(reader, tables, FourCC.Vmtx, required: true);
+                    vmetrics = SfntTables.ReadMetricsTable(reader, head.GlyphCount, vMetricsHeader.MetricCount);
+                }
+
+                // OS/2 table has even more metrics
+                var os2Data = SfntTables.ReadOS2(reader, tables);
+                xHeight = os2Data.XHeight;
+                capHeight = os2Data.CapHeight;
+                weight = os2Data.Weight;
+                stretch = os2Data.Stretch;
+                style = os2Data.Style;
+
+                // optional PostScript table has random junk in it
+                SfntTables.ReadPost(reader, tables, ref head);
+                isFixedWidth = head.IsFixedPitch;
+
+                // read character-to-glyph mapping tables
+                charMap = CharacterMap.ReadCmap(reader, tables);
+
+                // load glyphs if we have them
+                if (SfntTables.SeekToTable(reader, tables, FourCC.Glyf)) {
+                    // read in the loca table, which tells us the byte offset of each glyph
+                    var loca = stackalloc uint[head.GlyphCount];
+                    SfntTables.ReadLoca(reader, tables, head.IndexFormat, loca, head.GlyphCount);
+
+                    // we need to know the length of the glyf table because of some weirdness in the loca table:
+                    // if a glyph is "missing" (like a space character), then its loca[n] entry is equal to loca[n+1]
+                    // if the last glyph in the set is missing, then loca[n] == glyf table length
+                    SfntTables.SeekToTable(reader, tables, FourCC.Glyf);
+                    var glyfOffset = reader.Position;
+                    var glyfLength = tables[SfntTables.FindTable(tables, FourCC.Glyf)].Length;
+
+                    // read in all glyphs
+                    glyphs = new BaseGlyph[head.GlyphCount];
+                    for (int i = 0; i < glyphs.Length; i++)
+                        SfntTables.ReadGlyph(reader, i, 0, glyphs, glyfOffset, glyfLength, loca);
+                }
+
+                // metrics calculations: if the UseTypographicMetrics flag is set, then
+                // we should use the sTypo*** data for line height calculation
+                if (os2Data.UseTypographicMetrics) {
+                    // include the line gap in the ascent so that
+                    // white space is distributed above the line
+                    cellAscent = os2Data.TypographicAscender + os2Data.TypographicLineGap;
+                    cellDescent = -os2Data.TypographicDescender;
+                    lineHeight = os2Data.TypographicAscender + os2Data.TypographicLineGap - os2Data.TypographicDescender;
+                }
+                else {
+                    // otherwise, we need to guess at whether hhea data or os/2 data has better line spacing
+                    // this is the recommended procedure based on the OS/2 spec extra notes
+                    cellAscent = os2Data.WinAscent;
+                    cellDescent = Math.Abs(os2Data.WinDescent);
+                    lineHeight = Math.Max(
+                        Math.Max(0, hMetricsHeader.LineGap) + hMetricsHeader.Ascender + Math.Abs(hMetricsHeader.Descender),
+                        cellAscent + cellDescent
+                    );
+                }
+
+                // give sane defaults for underline and strikeout data if missing
+                underlineSize = head.UnderlineThickness != 0 ?
+                    head.UnderlineThickness : (head.UnitsPerEm + 7) / 14;
+                underlinePosition = head.UnderlinePosition != 0 ?
+                    head.UnderlinePosition : -((head.UnitsPerEm + 5) / 10);
+                strikeoutSize = os2Data.StrikeoutSize != 0 ?
+                    os2Data.StrikeoutSize : underlineSize;
+                strikeoutPosition = os2Data.StrikeoutPosition != 0 ?
+                    os2Data.StrikeoutPosition : head.UnitsPerEm / 3;
+            }
         }
 
         public static float ComputePixelSize (float pointSize, int dpi) => pointSize * dpi / 72;
@@ -89,7 +153,7 @@ namespace SharpFont {
 
             //  get vertical metrics if we have them; otherwise synthesize them
             // TODO:
-            
+
             // build and transform the glyph
             var points = new List<PointF>(32);
             var contours = new List<int>(32);
@@ -161,7 +225,7 @@ namespace SharpFont {
                     // translate all child points
                     if (offset != Vector2.Zero) {
                         //for (int i = currentPoints; i < basePoints.Count; i++)
-                          //  basePoints[i].Offset(offset);
+                        //  basePoints[i].Offset(offset);
                     }
                 }
             }

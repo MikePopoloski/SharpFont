@@ -90,8 +90,7 @@ namespace Test {
 
         static FontFace LoadTypeface (string fileName) {
             using (var file = File.OpenRead(fileName))
-            using (var loader = new FontReader(file))
-                return loader.ReadFace();
+                return new FontFace(file);
         }
     }
 }

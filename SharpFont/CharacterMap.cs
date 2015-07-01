@@ -19,7 +19,9 @@ namespace SharpFont {
             return -1;
         }
 
-        public static CharacterMap ReadCmap (DataReader reader) {
+        public static CharacterMap ReadCmap (DataReader reader, TableRecord[] tables) {
+            SfntTables.SeekToTable(reader, tables, FourCC.Cmap, required: true);
+
             // skip version
             var cmapOffset = reader.Position;
             reader.Skip(sizeof(short));

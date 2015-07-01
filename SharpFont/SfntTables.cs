@@ -26,7 +26,31 @@ namespace SharpFont {
             return offsets;
         }
 
-        public static void ReadHead (DataReader reader, out FaceHeader header) {
+        public static TableRecord[] ReadFaceHeader (DataReader reader) {
+            var tag = reader.ReadUInt32BE();
+            if (tag != TTFv1 && tag != TTFv2 && tag != FourCC.True)
+                throw new InvalidFontException("Unknown or unsupported sfnt version.");
+
+            var tableCount = reader.ReadUInt16BE();
+            reader.Skip(6); // skip the rest of the header
+
+            // read each font table descriptor
+            var tables = new TableRecord[tableCount];
+            for (int i = 0; i < tableCount; i++) {
+                tables[i] = new TableRecord {
+                    Tag = reader.ReadUInt32(),
+                    CheckSum = reader.ReadUInt32BE(),
+                    Offset = reader.ReadUInt32BE(),
+                    Length = reader.ReadUInt32BE(),
+                };
+            }
+
+            return tables;
+        }
+
+        public static FaceHeader ReadHead (DataReader reader, TableRecord[] tables) {
+            SeekToTable(reader, tables, FourCC.Head, required: true);
+
             // 'head' table contains global information for the font face
             // we only care about a few fields in it
             reader.Skip(sizeof(int) * 4);   // version, revision, checksum, magic number
@@ -35,6 +59,8 @@ namespace SharpFont {
                 Flags = (HeadFlags)reader.ReadUInt16BE(),
                 UnitsPerEm = reader.ReadUInt16BE()
             };
+            if (result.UnitsPerEm == 0)
+                throw new InvalidFontException("Invalid 'head' table.");
 
             // skip over created and modified times, bounding box,
             // deprecated style bits, direction hints, and size hints
@@ -42,16 +68,17 @@ namespace SharpFont {
 
             result.IndexFormat = (IndexFormat)reader.ReadInt16BE();
 
-            header = result;
+            return result;
         }
 
-        public static void ReadPost (DataReader reader, ref FaceHeader header) {
-            // skip over version and italicAngle
-            reader.Skip(sizeof(int) * 2);
+        public static void ReadMaxp (DataReader reader, TableRecord[] tables, ref FaceHeader header) {
+            SeekToTable(reader, tables, FourCC.Maxp, required: true);
 
-            header.UnderlinePosition = reader.ReadInt16BE();
-            header.UnderlineThickness = reader.ReadInt16BE();
-            header.IsFixedPitch = reader.ReadUInt32BE() != 0;
+            // we just want the number of glyphs
+            reader.Skip(sizeof(int));
+            header.GlyphCount = reader.ReadUInt16BE();
+            if (header.GlyphCount > MaxGlyphs)
+                throw new InvalidFontException("Font contains too many glyphs.");
         }
 
         public static MetricsHeader ReadMetricsHeader (DataReader reader) {
@@ -94,7 +121,9 @@ namespace SharpFont {
             return results;
         }
 
-        public static void ReadOS2 (DataReader reader, out OS2Data os2Data) {
+        public static OS2Data ReadOS2 (DataReader reader, TableRecord[] tables) {
+            SeekToTable(reader, tables, FourCC.OS_2, required: true);
+
             // skip over version, xAvgCharWidth
             reader.Skip(sizeof(short) * 2);
 
@@ -137,18 +166,24 @@ namespace SharpFont {
             result.XHeight = reader.ReadInt16BE();
             result.CapHeight = reader.ReadInt16BE();
 
-            os2Data = result;
+            return result;
         }
 
-        public static void ReadMaxp (DataReader reader, ref FaceHeader header) {
-            // we just want the number of glyphs
-            reader.Skip(sizeof(int));
-            header.GlyphCount = reader.ReadUInt16BE();
-            if (header.GlyphCount > MaxGlyphs)
-                throw new InvalidFontException("Font contains too many glyphs.");
+        public static void ReadPost (DataReader reader, TableRecord[] tables, ref FaceHeader header) {
+            if (!SeekToTable(reader, tables, FourCC.Post))
+                return;
+
+            // skip over version and italicAngle
+            reader.Skip(sizeof(int) * 2);
+
+            header.UnderlinePosition = reader.ReadInt16BE();
+            header.UnderlineThickness = reader.ReadInt16BE();
+            header.IsFixedPitch = reader.ReadUInt32BE() != 0;
         }
 
-        public static void ReadLoca (DataReader reader, IndexFormat format, uint* table, int count) {
+        public static void ReadLoca (DataReader reader, TableRecord[] tables, IndexFormat format, uint* table, int count) {
+            SeekToTable(reader, tables, FourCC.Loca, required: true);
+
             if (format == IndexFormat.Short) {
                 // values are ushort, divided by 2, so we need to shift back
                 for (int i = 0; i < count; i++)
@@ -394,6 +429,8 @@ namespace SharpFont {
             return result;
         }
 
+        const uint TTFv1 = 0x10000;
+        const uint TTFv2 = 0x20000;
         const int MaxGlyphs = short.MaxValue;
         const int MaxContours = 256;
         const int MaxRecursion = 128;
