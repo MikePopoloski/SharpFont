@@ -235,27 +235,32 @@ namespace SharpFont {
                 throw new InvalidFontException("Bad font data; infinite composite recursion.");
 
             // check if this glyph doesn't have any actual data
-            int contours;
+            GlyphHeader header;
             var offset = loca[glyphIndex];
             if ((glyphIndex < glyphTable.Length - 1 && offset == loca[glyphIndex + 1]) || offset >= glyfLength) {
                 // this is an empty glyph, so synthesize a header
-                contours = 0;
+                header = default(GlyphHeader);
             }
             else {
                 // seek to the right spot and load the header
                 reader.Seek(glyfOffset + loca[glyphIndex]);
-                var header = ReadGlyphHeader(reader);
-
-                contours = header.ContourCount;
-                if (contours < -1 || contours > MaxContours)
+                header = new GlyphHeader {
+                    ContourCount = reader.ReadInt16BE(),
+                    MinX = reader.ReadInt16BE(),
+                    MinY = reader.ReadInt16BE(),
+                    MaxX = reader.ReadInt16BE(),
+                    MaxY = reader.ReadInt16BE()
+                };
+                
+                if (header.ContourCount < -1 || header.ContourCount > MaxContours)
                     throw new InvalidFontException("Invalid number of contours for glyph.");
             }
 
-            if (contours > 0) {
+            if (header.ContourCount > 0) {
                 // positive contours means a simple glyph
-                glyphTable[glyphIndex] = ReadSimpleGlyph(reader, contours);
+                glyphTable[glyphIndex] = ReadSimpleGlyph(reader, header.ContourCount);
             }
-            else if (contours == -1) {
+            else if (header.ContourCount == -1) {
                 // -1 means composite glyph
                 var composite = ReadCompositeGlyph(reader);
                 var subglyphs = composite.Subglyphs;
@@ -273,16 +278,13 @@ namespace SharpFont {
                     ContourEndpoints = new int[0]
                 };
             }
-        }
 
-        static GlyphHeader ReadGlyphHeader (DataReader reader) {
-            return new GlyphHeader {
-                ContourCount = reader.ReadInt16BE(),
-                MinX = reader.ReadInt16BE(),
-                MinY = reader.ReadInt16BE(),
-                MaxX = reader.ReadInt16BE(),
-                MaxY = reader.ReadInt16BE()
-            };
+            // save bounding box
+            var glyph = glyphTable[glyphIndex];
+            glyph.MinX = header.MinX;
+            glyph.MinY = header.MinY;
+            glyph.MaxX = header.MaxX;
+            glyph.MaxY = header.MaxY;
         }
 
         static SimpleGlyph ReadSimpleGlyph (DataReader reader, int contourCount) {
@@ -491,6 +493,10 @@ namespace SharpFont {
 
     abstract class BaseGlyph {
         public byte[] Instructions;
+        public int MinX;
+        public int MinY;
+        public int MaxX;
+        public int MaxY;
     }
 
     class SimpleGlyph : BaseGlyph {

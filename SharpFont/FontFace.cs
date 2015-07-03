@@ -10,6 +10,7 @@ namespace SharpFont {
         readonly MetricsEntry[] hmetrics;
         readonly MetricsEntry[] vmetrics;
         readonly CharacterMap charMap;
+        readonly MetricsEntry verticalSynthesized;
         readonly FontWeight weight;
         readonly FontStretch stretch;
         readonly FontStyle style;
@@ -119,6 +120,12 @@ namespace SharpFont {
                     os2Data.StrikeoutSize : underlineSize;
                 strikeoutPosition = os2Data.StrikeoutPosition != 0 ?
                     os2Data.StrikeoutPosition : head.UnitsPerEm / 3;
+
+                // create some vertical metrics in case we haven't loaded any
+                verticalSynthesized = new MetricsEntry {
+                    FrontSideBearing = os2Data.TypographicAscender,
+                    Advance = os2Data.TypographicAscender - os2Data.TypographicDescender
+                };
             }
         }
 
@@ -144,17 +151,36 @@ namespace SharpFont {
             if (glyphIndex < 0)
                 return null;
 
-            // get horizontal metrics
+            // get metrics
+            var glyph = glyphs[glyphIndex];
             var horizontal = hmetrics[glyphIndex];
-
-            //  get vertical metrics if we have them; otherwise synthesize them
-            // TODO:
+            var vtemp = vmetrics?[glyphIndex];
+            if (vtemp == null) {
+                var synth = verticalSynthesized;
+                synth.FrontSideBearing -= glyph.MaxY;
+                vtemp = synth;
+            }
+            var vertical = vtemp.GetValueOrDefault();
 
             // build and transform the glyph
             var points = new List<PointF>(32);
             var contours = new List<int>(32);
-            var transform = Matrix3x2.CreateScale(ComputeScale(pixelSize));
+            var scale = ComputeScale(pixelSize);
+            var transform = Matrix3x2.CreateScale(scale);
             Geometry.ComposeGlyphs(glyphIndex, 0, ref transform, points, contours, glyphs);
+
+            // add phantom points; these are used to define the extents of the glyph,
+            // and can be modified by hinting instructions
+            points.Add(new PointF(new Vector2((glyph.MinX - horizontal.FrontSideBearing) * scale
+
+            var pp1x = glyph.MinX - horizontal.FrontSideBearing;
+            var pp1y = 0;
+            var pp2x = pp1x + horizontal.Advance;
+            var pp2y = 0;
+            var pp3x = 0;
+            var pp3y = glyph.MaxY + vertical.FrontSideBearing;
+            var pp4x = 0;
+            var pp4y = pp3y - vertical.Advance;
 
             return new Glyph(renderer, points.ToArray(), contours.ToArray());
 
