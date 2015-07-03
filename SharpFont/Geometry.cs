@@ -8,7 +8,8 @@ namespace SharpFont {
             var glyph = glyphTable[glyphIndex];
             var simple = glyph as SimpleGlyph;
             if (simple != null) {
-                baseContours.AddRange(simple.ContourEndpoints);
+                foreach (var endpoint in simple.ContourEndpoints)
+                    baseContours.Add(endpoint + startPoint);
                 foreach (var point in simple.Points)
                     basePoints.Add(new PointF(Vector2.TransformNormal((Vector2)point, transform), point.Type));
             }
@@ -43,15 +44,15 @@ namespace SharpFont {
                     else {
                         // if the offsets are not given in FUnits, then they are point indices
                         // in the currently composed base glyph that we should match up
-                        var p1 = basePoints[subglyph.Arg1 + startPoint];
-                        var p2 = basePoints[subglyph.Arg2 + currentPoints];
+                        var p1 = basePoints[(int)((uint)subglyph.Arg1 + startPoint)];
+                        var p2 = basePoints[(int)((uint)subglyph.Arg2 + currentPoints)];
                         offset = p1.P - p2.P;
                     }
 
                     // translate all child points
                     if (offset != Vector2.Zero) {
                         for (int i = currentPoints; i < basePoints.Count; i++)
-                            basePoints[i].Offset(offset);
+                            basePoints[i] = basePoints[i].Offset(offset);
                     }
                 }
             }
@@ -125,40 +126,6 @@ namespace SharpFont {
         }
     }
 
-    // Fixed point: 2.14
-    // used for unit vectors
-    struct F2Dot14 {
-        short value;
-
-        public F2Dot14 (short v) {
-            value = v;
-        }
-
-        public F2Dot14 (int integer, int fraction) {
-            value = (short)((integer << 14) | fraction);
-        }
-
-        public override string ToString () => $"{value / 16384.0}";
-
-        public static explicit operator F2Dot14 (short v) => new F2Dot14(v);
-        public static explicit operator short (F2Dot14 v) => v.value;
-
-        public static explicit operator float (F2Dot14 v) => v.value / 16384.0f;
-    }
-
-    struct FUnit {
-        int value;
-
-        public static explicit operator int (FUnit v) => v.value;
-        public static explicit operator FUnit (int v) => new FUnit { value = v };
-
-        public static FUnit operator -(FUnit lhs, FUnit rhs) => (FUnit)(lhs.value - rhs.value);
-        public static float operator *(FUnit lhs, float rhs) => lhs.value * rhs;
-
-        public static FUnit Max (FUnit a, FUnit b) => (FUnit)Math.Max(a.value, b.value);
-        public static FUnit Min (FUnit a, FUnit b) => (FUnit)Math.Min(a.value, b.value);
-    }
-
     struct Point {
         public FUnit X;
         public FUnit Y;
@@ -182,7 +149,7 @@ namespace SharpFont {
             Type = type;
         }
 
-        public void Offset (Vector2 offset) => P += offset;
+        public PointF Offset (Vector2 offset) => new PointF(P + offset, Type);
 
         public override string ToString () => $"{P} ({Type})";
 

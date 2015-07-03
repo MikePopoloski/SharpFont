@@ -29,7 +29,7 @@ namespace GpuExample {
 
             var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
             var buffer = new TextBuffer(128);
-            buffer.Append(atlas, typeface, "Hello, World!");
+            buffer.Append(atlas, typeface, "Hello, World! (¼)");
 
             
 

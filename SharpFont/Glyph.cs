@@ -47,7 +47,7 @@ namespace SharpFont {
             // translate the points so that 0,0 is at the bottom left corner
             var offset = new Vector2(-shiftX, -shiftY);
             for (int i = 0; i < points.Length; i++)
-                points[i].Offset(offset);
+                points[i] = points[i].Offset(offset);
 
             //Left = left;
             //Top = top;

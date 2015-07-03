@@ -29,6 +29,7 @@ namespace SharpFont {
         }
 
         public byte ReadByte () => *Read(1);
+        public sbyte ReadSByte () => *(sbyte*)Read(1);
         public short ReadInt16 () => *(short*)Read(sizeof(short));
         public int ReadInt32 () => *(int*)Read(sizeof(int));
         public ushort ReadUInt16 () => *(ushort*)Read(sizeof(ushort));

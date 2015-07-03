@@ -171,7 +171,7 @@ namespace SharpFont {
 
             // add phantom points; these are used to define the extents of the glyph,
             // and can be modified by hinting instructions
-            points.Add(new PointF(new Vector2((glyph.MinX - horizontal.FrontSideBearing) * scale
+           // points.Add(new PointF(new Vector2((glyph.MinX - horizontal.FrontSideBearing) * scale
 
             var pp1x = glyph.MinX - horizontal.FrontSideBearing;
             var pp1y = 0;

@@ -383,12 +383,12 @@ namespace SharpFont {
 
                 // read in args; they vary in size based on flags
                 if ((flags & CompositeGlyphFlags.ArgsAreWords) != 0) {
-                    subglyph.Arg1 = reader.ReadUInt16BE();
-                    subglyph.Arg2 = reader.ReadUInt16BE();
+                    subglyph.Arg1 = reader.ReadInt16BE();
+                    subglyph.Arg2 = reader.ReadInt16BE();
                 }
                 else {
-                    subglyph.Arg1 = reader.ReadByte();
-                    subglyph.Arg2 = reader.ReadByte();
+                    subglyph.Arg1 = reader.ReadSByte();
+                    subglyph.Arg2 = reader.ReadSByte();
                 }
 
                 // figure out the transform; we can either have no scale, a uniform
