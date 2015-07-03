@@ -10,6 +10,7 @@ namespace SharpFont {
         readonly MetricsEntry[] hmetrics;
         readonly MetricsEntry[] vmetrics;
         readonly CharacterMap charMap;
+        readonly KerningTable kernTable;
         readonly MetricsEntry verticalSynthesized;
         readonly FontWeight weight;
         readonly FontStretch stretch;
@@ -69,8 +70,9 @@ namespace SharpFont {
                 SfntTables.ReadPost(reader, tables, ref head);
                 isFixedWidth = head.IsFixedPitch;
 
-                // read character-to-glyph mapping tables
+                // read character-to-glyph mapping tables and kerning table
                 charMap = CharacterMap.ReadCmap(reader, tables);
+                kernTable = KerningTable.ReadKern(reader, tables);
 
                 // load glyphs if we have them
                 if (SfntTables.SeekToTable(reader, tables, FourCC.Glyf)) {
@@ -181,6 +183,19 @@ namespace SharpFont {
             points.Add(pp4 * scale);
 
             return new Glyph(renderer, points.ToArray(), contours.ToArray());
+        }
+
+        public float GetKerning (CodePoint left, CodePoint right, float pixelSize) {
+            if (kernTable == null)
+                return 0.0f;
+
+            var leftIndex = charMap.Lookup(left);
+            var rightIndex = charMap.Lookup(right);
+            if (leftIndex < 0 || rightIndex < 0)
+                return 0.0f;
+
+            var kern = kernTable.Lookup(leftIndex, rightIndex);
+            return kern * ComputeScale(pixelSize);
         }
 
         float ComputeScale (float pixelSize) {

@@ -195,10 +195,10 @@ namespace SharpFont {
             }
         }
 
-        public static int FindTable (TableRecord[] records, FourCC tag) {
+        public static int FindTable (TableRecord[] tables, FourCC tag) {
             var index = -1;
-            for (int i = 0; i < records.Length; i++) {
-                if (records[i].Tag == tag) {
+            for (int i = 0; i < tables.Length; i++) {
+                if (tables[i].Tag == tag) {
                     index = i;
                     break;
                 }
@@ -207,17 +207,17 @@ namespace SharpFont {
             return index;
         }
 
-        public static bool SeekToTable (DataReader reader, TableRecord[] records, FourCC tag, bool required = false) {
+        public static bool SeekToTable (DataReader reader, TableRecord[] tables, FourCC tag, bool required = false) {
             // check if we have the desired table and that it's not empty
-            var index = FindTable(records, tag);
-            if (index == -1 || records[index].Length == 0) {
+            var index = FindTable(tables, tag);
+            if (index == -1 || tables[index].Length == 0) {
                 if (required)
                     throw new InvalidFontException($"Missing or empty '{tag}' table.");
                 return false;
             }
 
             // seek to the appropriate offset
-            reader.Seek(records[index].Offset);
+            reader.Seek(tables[index].Offset);
             return true;
         }
 
@@ -609,5 +609,6 @@ namespace SharpFont {
         public static readonly FourCC Loca = "loca";
         public static readonly FourCC Glyf = "glyf";
         public static readonly FourCC Cmap = "cmap";
+        public static readonly FourCC Kern = "kern";
     }
 }

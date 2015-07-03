@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 
 namespace SharpFont {
     class CharacterMap {
-        Dictionary<CodePoint, int> table = new Dictionary<CodePoint, int>();
+        Dictionary<CodePoint, int> table;
 
         CharacterMap (Dictionary<CodePoint, int> table) {
             this.table = table;

@@ -34,13 +34,12 @@ namespace GpuExample {
             var mem = (PosColorTexture*)memBlock.Data;
 
             var pen = new Vector2(32, 64);
+            char previous = '\0';
 
             foreach (var c in text) {
                 var glyph = typeface.GetGlyph(c, 32.0f);
-                if (glyph.RenderWidth == 0 || glyph.RenderHeight == 0) {
-                    pen.X += 16;
-                    continue;
-                }
+                if (glyph.RenderWidth == 0 || glyph.RenderHeight == 0)
+                    throw new NotSupportedException();
 
                 var memory = new MemoryBlock(glyph.RenderWidth * glyph.RenderHeight);
                 var surface = new Surface {
@@ -61,11 +60,14 @@ namespace GpuExample {
                 var region = atlas.GetRegion(index);
                 var width = region.Z * 4096;
                 var height = region.W * -4096;
-                
+
                 var metrics = glyph.HorizontalMetrics;
                 var bearing = metrics.Bearing;
+                var kerning = typeface.GetKerning(previous, c, 32.0f);
+                pen.X += kerning;
+
                 var origin = new Vector2((int)Math.Round(pen.X + bearing.X), (int)Math.Round(pen.Y - bearing.Y));
-                
+
                 *mem++ = new PosColorTexture(origin + new Vector2(0, glyph.RenderHeight), new Vector2(region.X, region.Y + region.W), -1);
                 *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, glyph.RenderHeight), new Vector2(region.X + region.Z, region.Y + region.W), -1);
                 *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, 0), new Vector2(region.X + region.Z, region.Y), -1);
@@ -73,6 +75,7 @@ namespace GpuExample {
 
                 pen.X += metrics.Advance;
                 count++;
+                previous = c;
             }
 
             vertexBuffer = new DynamicVertexBuffer(memBlock, PosColorTexture.Layout);
