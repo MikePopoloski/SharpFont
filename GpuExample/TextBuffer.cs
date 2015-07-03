@@ -33,7 +33,7 @@ namespace GpuExample {
             var memBlock = new MemoryBlock(text.Length * 6 * PosColorTexture.Layout.Stride);
             var mem = (PosColorTexture*)memBlock.Data;
 
-            var pen = new Vector2(8, 32);
+            var pen = new Vector2(32, 64);
 
             foreach (var c in text) {
                 var glyph = typeface.GetGlyph(c, 32.0f);
@@ -62,12 +62,16 @@ namespace GpuExample {
                 var width = region.Z * 4096;
                 var height = region.W * -4096;
                 
-                *mem++ = new PosColorTexture(pen, new Vector2(region.X, region.Y + region.W), -1);
-                *mem++ = new PosColorTexture(pen + new Vector2(width, 0), new Vector2(region.X + region.Z, region.Y + region.W), -1);
-                *mem++ = new PosColorTexture(pen + new Vector2(width, height), new Vector2(region.X + region.Z, region.Y), -1);
-                *mem++ = new PosColorTexture(pen + new Vector2(0, height), new Vector2(region.X, region.Y), -1);
+                var metrics = glyph.HorizontalMetrics;
+                var bearing = metrics.Bearing;
+                var origin = new Vector2((int)Math.Round(pen.X + bearing.X), (int)Math.Round(pen.Y - bearing.Y));
+                
+                *mem++ = new PosColorTexture(origin + new Vector2(0, glyph.RenderHeight), new Vector2(region.X, region.Y + region.W), -1);
+                *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, glyph.RenderHeight), new Vector2(region.X + region.Z, region.Y + region.W), -1);
+                *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, 0), new Vector2(region.X + region.Z, region.Y), -1);
+                *mem++ = new PosColorTexture(origin, new Vector2(region.X, region.Y), -1);
 
-                pen.X += width + 2;
+                pen.X += metrics.Advance;
                 count++;
             }
 

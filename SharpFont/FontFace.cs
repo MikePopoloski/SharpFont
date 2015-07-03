@@ -171,34 +171,16 @@ namespace SharpFont {
 
             // add phantom points; these are used to define the extents of the glyph,
             // and can be modified by hinting instructions
-           // points.Add(new PointF(new Vector2((glyph.MinX - horizontal.FrontSideBearing) * scale
-
-            var pp1x = glyph.MinX - horizontal.FrontSideBearing;
-            var pp1y = 0;
-            var pp2x = pp1x + horizontal.Advance;
-            var pp2y = 0;
-            var pp3x = 0;
-            var pp3y = glyph.MaxY + vertical.FrontSideBearing;
-            var pp4x = 0;
-            var pp4y = pp3y - vertical.Advance;
+            var pp1 = new Point((FUnit)(glyph.MinX - horizontal.FrontSideBearing), (FUnit)0);
+            var pp2 = new Point(pp1.X + (FUnit)horizontal.Advance, (FUnit)0);
+            var pp3 = new Point((FUnit)0, (FUnit)(glyph.MaxY + vertical.FrontSideBearing));
+            var pp4 = new Point((FUnit)0, pp3.Y - (FUnit)vertical.Advance);
+            points.Add(pp1 * scale);
+            points.Add(pp2 * scale);
+            points.Add(pp3 * scale);
+            points.Add(pp4 * scale);
 
             return new Glyph(renderer, points.ToArray(), contours.ToArray());
-
-            //var glyphData = glyphs[glyphIndex];
-            //var outline = glyphData.Outline;
-            //var points = outline.Points;
-            //// TODO: don't round the control box
-            //var cbox = FixedMath.ComputeControlBox(points);
-
-            //return new Glyph(
-            //    glyphData,
-            //    renderer,
-            //    (int)cbox.MinX * scale,
-            //    (int)cbox.MaxY * scale,
-            //    (int)(cbox.MaxX - cbox.MinX) * scale,
-            //    (int)(cbox.MaxY - cbox.MinY) * scale,
-            //    horizontal.Advance * scale
-            //);
         }
 
         float ComputeScale (float pixelSize) {

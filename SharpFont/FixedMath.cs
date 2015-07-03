@@ -33,6 +33,7 @@ namespace SharpFont {
         public static explicit operator FUnit (int v) => new FUnit { value = v };
 
         public static FUnit operator -(FUnit lhs, FUnit rhs) => (FUnit)(lhs.value - rhs.value);
+        public static FUnit operator +(FUnit lhs, FUnit rhs) => (FUnit)(lhs.value + rhs.value);
         public static float operator *(FUnit lhs, float rhs) => lhs.value * rhs;
 
         public static FUnit Max (FUnit a, FUnit b) => (FUnit)Math.Max(a.value, b.value);

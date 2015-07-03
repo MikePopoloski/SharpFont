@@ -137,6 +137,8 @@ namespace SharpFont {
             Type = PointType.OnCurve;
         }
 
+        public static PointF operator *(Point lhs, float rhs) => new PointF(new Vector2(lhs.X * rhs, lhs.Y * rhs), lhs.Type);
+
         public static explicit operator Vector2 (Point p) => new Vector2((int)p.X, (int)p.Y);
     }
 

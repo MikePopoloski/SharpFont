@@ -10,15 +10,13 @@ namespace SharpFont {
         Renderer renderer;
         PointF[] points;
         int[] contours;
-
-        public readonly float Left;
-        public readonly float Top;
+        
         public readonly float Width;
         public readonly float Height;
-        public readonly float Advance;
-
         public readonly int RenderWidth;
         public readonly int RenderHeight;
+        public readonly GlyphMetrics HorizontalMetrics;
+        public readonly GlyphMetrics VerticalMetrics;
 
         internal Glyph (Renderer renderer, PointF[] points, int[] contours) {
             this.renderer = renderer;
@@ -46,14 +44,16 @@ namespace SharpFont {
 
             // translate the points so that 0,0 is at the bottom left corner
             var offset = new Vector2(-shiftX, -shiftY);
-            for (int i = 0; i < points.Length; i++)
+            var pointCount = points.Length;
+            for (int i = 0; i < pointCount; i++)
                 points[i] = points[i].Offset(offset);
 
-            //Left = left;
-            //Top = top;
-            //Width = width;
-            //Height = height;
-            //Advance = advance;
+            HorizontalMetrics = new GlyphMetrics {
+                Bearing = new Vector2(min.X, max.Y),
+                Advance = points[pointCount - 3].P.X - points[pointCount - 4].P.X
+            };
+            
+            // TODO: vertical metrics
         }
 
         public void RenderTo (Surface surface) {
@@ -82,6 +82,12 @@ namespace SharpFont {
             // blit the result to the target surface
             renderer.BlitTo(surface);
         }
+    }
+
+    public struct GlyphMetrics {
+        public Vector2 Bearing;
+        public float Advance;
+        public float LinearAdvance;
     }
 
     public struct Surface {
