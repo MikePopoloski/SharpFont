@@ -12,9 +12,6 @@ namespace SharpFont {
         readonly CharacterMap charMap;
         readonly KerningTable kernTable;
         readonly MetricsEntry verticalSynthesized;
-        readonly FontWeight weight;
-        readonly FontStretch stretch;
-        readonly FontStyle style;
         readonly int cellAscent;
         readonly int cellDescent;
         readonly int lineHeight;
@@ -25,13 +22,18 @@ namespace SharpFont {
         readonly int strikeoutSize;
         readonly int strikeoutPosition;
         readonly int unitsPerEm;
-        readonly bool isFixedWidth;
         readonly bool integerPpems;
 
-        public bool IsFixedWidth => isFixedWidth;
-        public FontWeight Weight => weight;
-        public FontStretch Stretch => stretch;
-        public FontStyle Style => style;
+        public readonly bool IsFixedWidth;
+        public readonly FontWeight Weight;
+        public readonly FontStretch Stretch;
+        public readonly FontStyle Style;
+        public readonly string Family;
+        public readonly string Subfamily;
+        public readonly string FullName;
+        public readonly string UniqueID;
+        public readonly string Version;
+        public readonly string Description;
 
         unsafe public FontFace (Stream stream) {
             // read the face header and table records
@@ -62,17 +64,26 @@ namespace SharpFont {
                 var os2Data = SfntTables.ReadOS2(reader, tables);
                 xHeight = os2Data.XHeight;
                 capHeight = os2Data.CapHeight;
-                weight = os2Data.Weight;
-                stretch = os2Data.Stretch;
-                style = os2Data.Style;
+                Weight = os2Data.Weight;
+                Stretch = os2Data.Stretch;
+                Style = os2Data.Style;
 
                 // optional PostScript table has random junk in it
                 SfntTables.ReadPost(reader, tables, ref head);
-                isFixedWidth = head.IsFixedPitch;
+                IsFixedWidth = head.IsFixedPitch;
 
                 // read character-to-glyph mapping tables and kerning table
                 charMap = CharacterMap.ReadCmap(reader, tables);
                 kernTable = KerningTable.ReadKern(reader, tables);
+
+                // name data
+                var names = SfntTables.ReadNames(reader, tables);
+                Family = names.TypographicFamilyName ?? names.FamilyName;
+                Subfamily = names.TypographicSubfamilyName ?? names.SubfamilyName;
+                FullName = names.FullName;
+                UniqueID = names.UniqueID;
+                Version = names.Version;
+                Description = names.Description;
 
                 // load glyphs if we have them
                 if (SfntTables.SeekToTable(reader, tables, FourCC.Glyf)) {

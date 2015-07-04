@@ -38,8 +38,8 @@ namespace SharpFont {
             for (int i = 0; i < subtableHeaders.Length; i++) {
                 var platform = subtableHeaders[i].PlatformID;
                 var encoding = subtableHeaders[i].EncodingID;
-                if ((platform == CmapPlatform.Microsoft && encoding == MicrosoftCmapEncoding.UnicodeFull) ||
-                    (platform == CmapPlatform.Unicode && encoding == UnicodeCmapEncoding.Unicode32)) {
+                if ((platform == PlatformID.Microsoft && encoding == WindowsEncoding.UnicodeFull) ||
+                    (platform == PlatformID.Unicode && encoding == UnicodeEncoding.Unicode32)) {
 
                     chosenSubtableOffset = subtableHeaders[i].Offset;
                     break;
@@ -52,8 +52,8 @@ namespace SharpFont {
                 for (int i = 0; i < subtableHeaders.Length; i++) {
                     var platform = subtableHeaders[i].PlatformID;
                     var encoding = subtableHeaders[i].EncodingID;
-                    if ((platform == CmapPlatform.Microsoft && encoding == MicrosoftCmapEncoding.UnicodeBmp) ||
-                         platform == CmapPlatform.Unicode) {
+                    if ((platform == PlatformID.Microsoft && encoding == WindowsEncoding.UnicodeBmp) ||
+                         platform == PlatformID.Unicode) {
 
                         chosenSubtableOffset = subtableHeaders[i].Offset;
                         break;
@@ -141,20 +141,6 @@ namespace SharpFont {
         }
 
         const int MaxSegments = 1024;
-
-        static class CmapPlatform {
-            public const int Unicode = 0;
-            public const int Microsoft = 3;
-        }
-
-        static class MicrosoftCmapEncoding {
-            public const int UnicodeBmp = 1;
-            public const int UnicodeFull = 10;
-        }
-
-        static class UnicodeCmapEncoding {
-            public const int Unicode32 = 4;
-        }
 
         struct CmapSubtableHeader {
             public int PlatformID;

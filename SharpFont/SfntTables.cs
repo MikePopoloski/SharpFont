@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Numerics;
+using System.Text;
 
 namespace SharpFont {
     // raw SFNT container table reading routines
@@ -195,6 +197,64 @@ namespace SharpFont {
             }
         }
 
+        public unsafe static NameData ReadNames (DataReader reader, TableRecord[] tables) {
+            if (!SeekToTable(reader, tables, FourCC.Name))
+                return default(NameData);
+
+            // read header
+            var currentOffset = reader.Position;
+            var format = reader.ReadUInt16BE();
+            var count = reader.ReadUInt16BE();
+            var dataOffset = currentOffset + reader.ReadUInt16BE();
+
+            // read name records, filtering out non-Unicode and platforms we don't know about
+            var stringData = stackalloc StringData[count];
+            var stringDataCount = 0;
+            for (int i = 0; i < count; i++) {
+                var platform = reader.ReadUInt16BE();
+                var encoding = reader.ReadUInt16BE();
+                var language = reader.ReadUInt16BE();
+                var name = reader.ReadUInt16BE();
+                var length = reader.ReadUInt16BE();
+                var offset = reader.ReadUInt16BE();
+
+                // we only support Unicode strings
+                if (platform == PlatformID.Microsoft) {
+                    if (encoding != WindowsEncoding.UnicodeBmp && encoding != WindowsEncoding.UnicodeFull)
+                        continue;
+
+                    if (language != CultureInfo.CurrentCulture.LCID)
+                        continue;
+                }
+                else if (platform != PlatformID.Unicode)
+                    continue;
+
+                stringData[stringDataCount++] = new StringData {
+                    Name = name,
+                    Offset = offset,
+                    Length = length
+                };
+            }
+
+            // find strings we care about and extract them from the blob
+            var nameData = new NameData();
+            for (int i = 0; i < stringDataCount; i++) {
+                var data = stringData[i];
+                switch (data.Name) {
+                    case NameID.FamilyName: nameData.FamilyName = ExtractString(reader, dataOffset, data); break;
+                    case NameID.SubfamilyName: nameData.SubfamilyName = ExtractString(reader, dataOffset, data); break;
+                    case NameID.UniqueID: nameData.UniqueID = ExtractString(reader, dataOffset, data); break;
+                    case NameID.FullName: nameData.FullName = ExtractString(reader, dataOffset, data); break;
+                    case NameID.Version: nameData.Version = ExtractString(reader, dataOffset, data); break;
+                    case NameID.Description: nameData.Description = ExtractString(reader, dataOffset, data); break;
+                    case NameID.TypographicFamilyName: nameData.TypographicFamilyName = ExtractString(reader, dataOffset, data); break;
+                    case NameID.TypographicSubfamilyName: nameData.TypographicSubfamilyName = ExtractString(reader, dataOffset, data); break;
+                }
+            }
+
+            return nameData;
+        }
+
         public static int FindTable (TableRecord[] tables, FourCC tag) {
             var index = -1;
             for (int i = 0; i < tables.Length; i++) {
@@ -251,7 +311,7 @@ namespace SharpFont {
                     MaxX = reader.ReadInt16BE(),
                     MaxY = reader.ReadInt16BE()
                 };
-                
+
                 if (header.ContourCount < -1 || header.ContourCount > MaxContours)
                     throw new InvalidFontException("Invalid number of contours for glyph.");
             }
@@ -427,12 +487,65 @@ namespace SharpFont {
             return result;
         }
 
+        static string ExtractString (DataReader reader, uint baseOffset, StringData data) {
+            reader.Seek(baseOffset + data.Offset);
+
+            var bytes = reader.ReadBytes(data.Length);
+            return Encoding.BigEndianUnicode.GetString(bytes);
+        }
+
         const uint TTFv1 = 0x10000;
         const uint TTFv2 = 0x20000;
         const int MaxGlyphs = short.MaxValue;
         const int MaxContours = 256;
         const int MaxRecursion = 128;
         const int MaxFontsInCollection = 64;
+
+        [Flags]
+        enum SimpleGlyphFlags {
+            None = 0,
+            OnCurve = 0x1,
+            ShortX = 0x2,
+            ShortY = 0x4,
+            Repeat = 0x8,
+            SameX = 0x10,
+            SameY = 0x20
+        }
+
+        [Flags]
+        enum FsSelectionFlags {
+            Italic = 0x1,
+            Bold = 0x20,
+            Regular = 0x40,
+            UseTypoMetrics = 0x80,
+            WWS = 0x100,
+            Oblique = 0x200
+        }
+
+        struct GlyphHeader {
+            public short ContourCount;
+            public short MinX;
+            public short MinY;
+            public short MaxX;
+            public short MaxY;
+        }
+
+        struct StringData {
+            public ushort Name;
+            public ushort Offset;
+            public ushort Length;
+        }
+
+        static class NameID {
+            public const int FamilyName = 1;
+            public const int SubfamilyName = 2;
+            public const int UniqueID = 3;
+            public const int FullName = 4;
+            public const int Version = 5;
+            public const int Description = 10;
+            public const int TypographicFamilyName = 16;
+            public const int TypographicSubfamilyName = 17;
+        }
     }
 
     struct TableRecord {
@@ -483,12 +596,15 @@ namespace SharpFont {
         public int CapHeight;
     }
 
-    struct GlyphHeader {
-        public short ContourCount;
-        public short MinX;
-        public short MinY;
-        public short MaxX;
-        public short MaxY;
+    struct NameData {
+        public string FamilyName;
+        public string SubfamilyName;
+        public string UniqueID;
+        public string FullName;
+        public string Version;
+        public string Description;
+        public string TypographicFamilyName;
+        public string TypographicSubfamilyName;
     }
 
     abstract class BaseGlyph {
@@ -516,15 +632,23 @@ namespace SharpFont {
         public Subglyph[] Subglyphs;
     }
 
-    [Flags]
-    enum SimpleGlyphFlags {
-        None = 0,
-        OnCurve = 0x1,
-        ShortX = 0x2,
-        ShortY = 0x4,
-        Repeat = 0x8,
-        SameX = 0x10,
-        SameY = 0x20
+    static class PlatformID {
+        public const int Unicode = 0;
+        public const int Microsoft = 3;
+    }
+
+    static class WindowsEncoding {
+        public const int UnicodeBmp = 1;
+        public const int UnicodeFull = 10;
+    }
+
+    static class UnicodeEncoding {
+        public const int Unicode32 = 4;
+    }
+
+    enum IndexFormat {
+        Short,
+        Long
     }
 
     [Flags]
@@ -550,21 +674,6 @@ namespace SharpFont {
         SizeDependentInstructions = 0x4,
         IntegerPpem = 0x8,
         InstructionsAlterAdvance = 0x10
-    }
-
-    [Flags]
-    enum FsSelectionFlags {
-        Italic = 0x1,
-        Bold = 0x20,
-        Regular = 0x40,
-        UseTypoMetrics = 0x80,
-        WWS = 0x100,
-        Oblique = 0x200
-    }
-
-    enum IndexFormat {
-        Short,
-        Long
     }
 
     // helper wrapper around 4CC codes for debugging purposes
@@ -610,5 +719,6 @@ namespace SharpFont {
         public static readonly FourCC Glyf = "glyf";
         public static readonly FourCC Cmap = "cmap";
         public static readonly FourCC Kern = "kern";
+        public static readonly FourCC Name = "name";
     }
 }
