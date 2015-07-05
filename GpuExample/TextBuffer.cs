@@ -36,8 +36,10 @@ namespace GpuExample {
             var pen = new Vector2(32, 64);
             char previous = '\0';
 
+            var pixelSize = FontFace.ComputePixelSize(32.0f, 96);
+
             foreach (var c in text) {
-                var glyph = typeface.GetGlyph(c, 32.0f);
+                var glyph = typeface.GetGlyph(c, pixelSize);
                 if (glyph.RenderWidth == 0 || glyph.RenderHeight == 0)
                     throw new NotSupportedException();
 
@@ -63,15 +65,17 @@ namespace GpuExample {
 
                 var metrics = glyph.HorizontalMetrics;
                 var bearing = metrics.Bearing;
-                var kerning = typeface.GetKerning(previous, c, 32.0f);
+                var kerning = typeface.GetKerning(previous, c, pixelSize);
                 pen.X += kerning;
 
                 var origin = new Vector2((int)Math.Round(pen.X + bearing.X), (int)Math.Round(pen.Y - bearing.Y));
+                //var origin = new Vector2(pen.X + bearing.X, pen.Y - bearing.Y);
 
-                *mem++ = new PosColorTexture(origin + new Vector2(0, glyph.RenderHeight), new Vector2(region.X, region.Y + region.W), -1);
-                *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, glyph.RenderHeight), new Vector2(region.X + region.Z, region.Y + region.W), -1);
-                *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, 0), new Vector2(region.X + region.Z, region.Y), -1);
-                *mem++ = new PosColorTexture(origin, new Vector2(region.X, region.Y), -1);
+
+                *mem++ = new PosColorTexture(origin + new Vector2(0, glyph.RenderHeight), new Vector2(region.X, region.Y + region.W), unchecked((int)0xff000000));
+                *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, glyph.RenderHeight), new Vector2(region.X + region.Z, region.Y + region.W), unchecked((int)0xff000000));
+                *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, 0), new Vector2(region.X + region.Z, region.Y), unchecked((int)0xff000000));
+                *mem++ = new PosColorTexture(origin, new Vector2(region.X, region.Y), unchecked((int)0xff000000));
 
                 pen.X += metrics.Advance;
                 count++;
@@ -84,7 +88,7 @@ namespace GpuExample {
         public void Submit () {
             Bgfx.SetVertexBuffer(vertexBuffer, count * 4);
             Bgfx.SetIndexBuffer(indexBuffer, 0, count * 6);
-            Bgfx.SetRenderState(RenderState.ColorWrite | RenderState.AlphaWrite | RenderState.BlendFunction(RenderState.BlendSourceAlpha, RenderState.BlendOne));
+            Bgfx.SetRenderState(RenderState.ColorWrite | RenderState.BlendFunction(RenderState.BlendSourceAlpha, RenderState.BlendInverseSourceAlpha));
             Bgfx.Submit(0);
         }
     }

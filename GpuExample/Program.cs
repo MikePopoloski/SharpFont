@@ -16,7 +16,7 @@ namespace GpuExample {
             Bgfx.Init();
             Bgfx.Reset(window.Width, window.Height, ResetFlags.Vsync);
             Bgfx.SetDebugFeatures(DebugFeatures.DisplayText);
-            Bgfx.SetViewClear(0, ClearTargets.Color | ClearTargets.Depth, 0x303030ff);
+            Bgfx.SetViewClear(0, ClearTargets.Color | ClearTargets.Depth, unchecked((int)0xffffffff));
 
             var fontProgram = new Program(
                 new Shader(MemoryBlock.FromArray(Shaders.FontVS)),
@@ -27,7 +27,8 @@ namespace GpuExample {
             var u_texColor = new Uniform("u_texColor", UniformType.Int1);
             var atlas = new TextureAtlas(4096);
 
-            var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
+            //var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
+            var typeface = LoadTypeface("C:/Windows/Fonts/Arial.ttf");
             var buffer = new TextBuffer(128);
             buffer.Append(atlas, typeface, "Hello, World! (¼)");
 

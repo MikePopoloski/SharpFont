@@ -46,10 +46,18 @@ namespace SharpFont {
         }
 
         public void Seek (uint position) {
-            // TODO: if the position is within our buffer we can reuse it
-            readOffset = 0;
-            writeOffset = 0;
-            stream.Position = position;
+            // if the position is within our buffer we can reuse part of it
+            // otherwise, just clear everything out and jump to the right spot
+            var current = stream.Position;
+            if (position < current - writeOffset || position >= current) {
+                readOffset = 0;
+                writeOffset = 0;
+                stream.Position = position;
+            }
+            else {
+                readOffset = (int)(position - current + writeOffset);
+                CheckWrapAround();
+            }
         }
 
         public void Skip (int count) {
@@ -59,7 +67,6 @@ namespace SharpFont {
             else {
                 // we've skipped everything in our buffer; clear it out
                 // and then skip any remaining data by seeking the stream
-                // TODO: implement a fallback for streams that can't seek
                 var seekCount = readOffset - writeOffset;
                 if (seekCount > 0)
                     stream.Position += seekCount;
