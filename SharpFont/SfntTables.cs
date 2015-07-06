@@ -255,6 +255,29 @@ namespace SharpFont {
             return nameData;
         }
 
+        public static FUnit[] ReadCvt (DataReader reader, TableRecord[] tables) {
+            var index = FindTable(tables, FourCC.Cvt);
+            if (index == -1)
+                return null;
+
+            reader.Seek(tables[index].Offset);
+            
+            var results = new FUnit[tables[index].Length / sizeof(short)];
+            for (int i = 0; i < results.Length; i++)
+                results[i] = (FUnit)reader.ReadInt16BE();
+
+            return results;
+        }
+
+        public static byte[] ReadProgram (DataReader reader, TableRecord[] tables, FourCC tag) {
+            var index = FindTable(tables, FourCC.Cvt);
+            if (index == -1)
+                return null;
+
+            reader.Seek(tables[index].Offset);
+            return reader.ReadBytes((int)tables[index].Length);
+        }
+
         public static int FindTable (TableRecord[] tables, FourCC tag) {
             var index = -1;
             for (int i = 0; i < tables.Length; i++) {
@@ -720,5 +743,8 @@ namespace SharpFont {
         public static readonly FourCC Cmap = "cmap";
         public static readonly FourCC Kern = "kern";
         public static readonly FourCC Name = "name";
+        public static readonly FourCC Cvt = "cvt ";
+        public static readonly FourCC Fpgm = "fpgm";
+        public static readonly FourCC Prep = "prep";
     }
 }

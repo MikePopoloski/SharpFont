@@ -12,6 +12,8 @@ namespace SharpFont {
         readonly CharacterMap charMap;
         readonly KerningTable kernTable;
         readonly MetricsEntry verticalSynthesized;
+        readonly FUnit[] controlValueTable;
+        readonly byte[] prepProgram;
         readonly int cellAscent;
         readonly int cellDescent;
         readonly int lineHeight;
@@ -75,6 +77,11 @@ namespace SharpFont {
                 // read character-to-glyph mapping tables and kerning table
                 charMap = CharacterMap.ReadCmap(reader, tables);
                 kernTable = KerningTable.ReadKern(reader, tables);
+
+                // read in global font program data
+                controlValueTable = SfntTables.ReadCvt(reader, tables);
+                prepProgram = SfntTables.ReadProgram(reader, tables, FourCC.Prep);
+                var fpgm = SfntTables.ReadProgram(reader, tables, FourCC.Fpgm);
 
                 // name data
                 var names = SfntTables.ReadNames(reader, tables);
