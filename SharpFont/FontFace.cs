@@ -6,6 +6,7 @@ using System.Numerics;
 namespace SharpFont {
     public class FontFace {
         readonly Renderer renderer = new Renderer();
+        readonly Interpreter interpreter;
         readonly BaseGlyph[] glyphs;
         readonly MetricsEntry[] hmetrics;
         readonly MetricsEntry[] vmetrics;
@@ -43,7 +44,8 @@ namespace SharpFont {
                 var tables = SfntTables.ReadFaceHeader(reader);
 
                 // read head and maxp tables for font metadata and limits
-                var head = SfntTables.ReadHead(reader, tables);
+                FaceHeader head;
+                SfntTables.ReadHead(reader, tables, out head);
                 SfntTables.ReadMaxp(reader, tables, ref head);
                 unitsPerEm = head.UnitsPerEm;
                 integerPpems = (head.Flags & HeadFlags.IntegerPpem) != 0;
@@ -82,6 +84,9 @@ namespace SharpFont {
                 controlValueTable = SfntTables.ReadCvt(reader, tables);
                 prepProgram = SfntTables.ReadProgram(reader, tables, FourCC.Prep);
                 var fpgm = SfntTables.ReadProgram(reader, tables, FourCC.Fpgm);
+
+                // initialize the interpreter
+                interpreter = new Interpreter(head.MaxStackSize, head.MaxStorageLocations);
 
                 // name data
                 var names = SfntTables.ReadNames(reader, tables);

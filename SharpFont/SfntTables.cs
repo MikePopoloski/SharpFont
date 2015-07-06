@@ -50,37 +50,51 @@ namespace SharpFont {
             return tables;
         }
 
-        public static FaceHeader ReadHead (DataReader reader, TableRecord[] tables) {
+        public static void ReadHead (DataReader reader, TableRecord[] tables, out FaceHeader header) {
             SeekToTable(reader, tables, FourCC.Head, required: true);
 
             // 'head' table contains global information for the font face
             // we only care about a few fields in it
             reader.Skip(sizeof(int) * 4);   // version, revision, checksum, magic number
 
-            var result = new FaceHeader {
+            header = new FaceHeader {
                 Flags = (HeadFlags)reader.ReadUInt16BE(),
                 UnitsPerEm = reader.ReadUInt16BE()
             };
-            if (result.UnitsPerEm == 0)
+            if (header.UnitsPerEm == 0)
                 throw new InvalidFontException("Invalid 'head' table.");
 
             // skip over created and modified times, bounding box,
             // deprecated style bits, direction hints, and size hints
             reader.Skip(sizeof(long) * 2 + sizeof(short) * 7);
 
-            result.IndexFormat = (IndexFormat)reader.ReadInt16BE();
-
-            return result;
+            header.IndexFormat = (IndexFormat)reader.ReadInt16BE();
         }
 
         public static void ReadMaxp (DataReader reader, TableRecord[] tables, ref FaceHeader header) {
             SeekToTable(reader, tables, FourCC.Maxp, required: true);
 
-            // we just want the number of glyphs
-            reader.Skip(sizeof(int));
+            if (reader.ReadInt32BE() != 0x00010000)
+                throw new InvalidFontException("Font contains an old style maxp table.");
+
             header.GlyphCount = reader.ReadUInt16BE();
             if (header.GlyphCount > MaxGlyphs)
                 throw new InvalidFontException("Font contains too many glyphs.");
+
+            // skip maxPoints, maxContours, maxCompositePoints, maxCompositeContours, maxZones
+            reader.Skip(sizeof(short) * 5);
+
+            header.MaxTwilightPoints = reader.ReadUInt16BE();
+            header.MaxStorageLocations = reader.ReadUInt16BE();
+            header.MaxFunctionDefs = reader.ReadUInt16BE();
+            header.MaxInstructionDefs = reader.ReadUInt16BE();
+            header.MaxStackSize = reader.ReadUInt16BE();
+
+            // sanity checking
+            if (header.MaxTwilightPoints > MaxTwilightPoints || header.MaxStorageLocations > MaxStorageLocations ||
+                header.MaxFunctionDefs > MaxFunctionDefs || header.MaxInstructionDefs > MaxFunctionDefs ||
+                header.MaxStackSize > MaxStackSize)
+                throw new InvalidFontException("Font programs have limits that are larger than built-in sanity checks.");
         }
 
         public static MetricsHeader ReadMetricsHeader (DataReader reader) {
@@ -261,7 +275,7 @@ namespace SharpFont {
                 return null;
 
             reader.Seek(tables[index].Offset);
-            
+
             var results = new FUnit[tables[index].Length / sizeof(short)];
             for (int i = 0; i < results.Length; i++)
                 results[i] = (FUnit)reader.ReadInt16BE();
@@ -270,7 +284,7 @@ namespace SharpFont {
         }
 
         public static byte[] ReadProgram (DataReader reader, TableRecord[] tables, FourCC tag) {
-            var index = FindTable(tables, FourCC.Cvt);
+            var index = FindTable(tables, tag);
             if (index == -1)
                 return null;
 
@@ -517,12 +531,18 @@ namespace SharpFont {
             return Encoding.BigEndianUnicode.GetString(bytes);
         }
 
+        // most of these limits are arbitrary; they can be increased if you
+        // run into a font in the wild that is constrained by them
         const uint TTFv1 = 0x10000;
         const uint TTFv2 = 0x20000;
         const int MaxGlyphs = short.MaxValue;
         const int MaxContours = 256;
         const int MaxRecursion = 128;
         const int MaxFontsInCollection = 64;
+        const int MaxStackSize = 16384;
+        const int MaxTwilightPoints = short.MaxValue;
+        const int MaxFunctionDefs = 4096;
+        const int MaxStorageLocations = 16384;
 
         [Flags]
         enum SimpleGlyphFlags {
@@ -588,6 +608,11 @@ namespace SharpFont {
         public int UnderlineThickness;
         public bool IsFixedPitch;
         public int GlyphCount;
+        public int MaxTwilightPoints;
+        public int MaxStorageLocations;
+        public int MaxFunctionDefs;
+        public int MaxInstructionDefs;
+        public int MaxStackSize;
     }
 
     struct MetricsHeader {
