@@ -80,14 +80,6 @@ namespace SharpFont {
                 charMap = CharacterMap.ReadCmap(reader, tables);
                 kernTable = KerningTable.ReadKern(reader, tables);
 
-                // read in global font program data
-                controlValueTable = SfntTables.ReadCvt(reader, tables);
-                prepProgram = SfntTables.ReadProgram(reader, tables, FourCC.Prep);
-                var fpgm = SfntTables.ReadProgram(reader, tables, FourCC.Fpgm);
-
-                // initialize the interpreter
-                interpreter = new Interpreter(head.MaxStackSize, head.MaxStorageLocations);
-
                 // name data
                 var names = SfntTables.ReadNames(reader, tables);
                 Family = names.TypographicFamilyName ?? names.FamilyName;
@@ -151,6 +143,16 @@ namespace SharpFont {
                     FrontSideBearing = os2Data.TypographicAscender,
                     Advance = os2Data.TypographicAscender - os2Data.TypographicDescender
                 };
+
+                // read in global font program data
+                controlValueTable = SfntTables.ReadCvt(reader, tables);
+                prepProgram = SfntTables.ReadProgram(reader, tables, FourCC.Prep);
+                interpreter = new Interpreter(head.MaxStackSize, head.MaxStorageLocations, head.MaxFunctionDefs);
+
+                // the fpgm table optionally contains a program to run at initialization time
+                var fpgm = SfntTables.ReadProgram(reader, tables, FourCC.Fpgm);
+                if (fpgm != null)
+                    interpreter.Execute(fpgm);
             }
         }
 
@@ -176,6 +178,10 @@ namespace SharpFont {
             if (glyphIndex < 0)
                 return null;
 
+            // set up the control value table
+            var scale = ComputeScale(pixelSize);
+            interpreter.SetControlValueTable(controlValueTable, scale, prepProgram);
+
             // get metrics
             var glyph = glyphs[glyphIndex];
             var horizontal = hmetrics[glyphIndex];
@@ -190,7 +196,6 @@ namespace SharpFont {
             // build and transform the glyph
             var points = new List<PointF>(32);
             var contours = new List<int>(32);
-            var scale = ComputeScale(pixelSize);
             var transform = Matrix3x2.CreateScale(scale);
             Geometry.ComposeGlyphs(glyphIndex, 0, ref transform, points, contours, glyphs);
 

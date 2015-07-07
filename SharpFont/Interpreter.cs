@@ -83,21 +83,51 @@ namespace SharpFont {
         }
     }
 
+    struct FunctionDef {
+        public byte[] Instructions;
+        public int Offset;
+
+        public FunctionDef (byte[] instructions, int offset) {
+            Instructions = instructions;
+            Offset = offset;
+        }
+    }
+
     class Interpreter {
         GraphicsState state;
         ExecutionStack stack;
-        float[] cvt;
+        FunctionDef[] functions;
+        float[] controlValueTable;
         byte[] instructions;
         int[] storage;
-        int ip;
         float scale;
+        int ip;
+        int callStackSize;
 
-        public Interpreter (int maxStack, int maxStorage) {
+        public Interpreter (int maxStack, int maxStorage, int maxFunctions) {
             stack = new ExecutionStack(maxStack);
             storage = new int[maxStorage];
+            functions = new FunctionDef[maxFunctions];
         }
 
-        public void Execute (byte[] instructions, int offset) {
+        public void SetControlValueTable (FUnit[] cvt, float scale, byte[] cvProgram) {
+            if (this.scale == scale || cvt == null)
+                return;
+
+            if (controlValueTable == null)
+                controlValueTable = new float[cvt.Length];
+
+            this.scale = scale;
+            for (int i = 0; i < cvt.Length; i++)
+                controlValueTable[i] = cvt[i] * scale;
+
+            if (cvProgram != null)
+                Execute(cvProgram);
+        }
+
+        public void Execute (byte[] instructions) => Execute(instructions, 0, false);
+
+        void Execute (byte[] instructions, int offset, bool inFunction) {
             this.instructions = instructions;
             ip = offset;
 
@@ -212,6 +242,16 @@ namespace SharpFont {
                     //case OpCode.CEILING: Ceiling(); break;
                     case OpCode.MAX: stack.Push(Math.Max(stack.Pop(), stack.Pop())); break;
                     case OpCode.MIN: stack.Push(Math.Min(stack.Pop(), stack.Pop())); break;
+
+                    // ==== FUNCTIONS ====
+                    case OpCode.FDEF: DefineFunction(inFunction); break;
+                    case OpCode.ENDF: Return(inFunction); return;
+                    case OpCode.CALL: Call(); break;
+                    case OpCode.LOOPCALL: LoopCall(); break;
+
+
+                    default:
+                        throw new InvalidFontException("Unknown opcode in font program.");
                 }
             }
         }
@@ -265,21 +305,21 @@ namespace SharpFont {
         void WriteCvtP () {
             var value = stack.Pop();
             var loc = stack.Pop();
-            CheckIndex(loc, cvt.Length);
-            cvt[loc] = F26Dot6ToFloat(value);
+            CheckIndex(loc, controlValueTable.Length);
+            controlValueTable[loc] = F26Dot6ToFloat(value);
         }
 
         void WriteCvtF () {
             var value = stack.Pop();
             var loc = stack.Pop();
-            CheckIndex(loc, cvt.Length);
-            cvt[loc] = value * scale;
+            CheckIndex(loc, controlValueTable.Length);
+            controlValueTable[loc] = value * scale;
         }
 
         void ReadCvt () {
             var loc = stack.Pop();
-            CheckIndex(loc, cvt.Length);
-            stack.Push(FloatToF26Dot6(cvt[loc]));
+            CheckIndex(loc, controlValueTable.Length);
+            stack.Push(FloatToF26Dot6(controlValueTable[loc]));
         }
 
         void CheckIndex (int index, int length) {
@@ -403,8 +443,64 @@ namespace SharpFont {
             stack.Push(a || b);
         }
 
-        float F26Dot6ToFloat (int value) => value / 64.0f;
-        int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
+        // ==== Function Calls ====
+        void DefineFunction (bool inFunction) {
+            if (inFunction)
+                throw new InvalidFontException("Can't define a function inside another function.");
+
+            functions[stack.Pop()] = new FunctionDef(instructions, ip);
+            Seek(OpCode.ENDF);
+        }
+
+        void Return (bool inFunction) {
+            if (!inFunction)
+                throw new InvalidFontException("Found invalid ENDF marker outside of a function definition.");
+
+            // nothing to do here; our caller will break the loop and return to its parent caller
+        }
+
+        void Call () {
+            if (callStackSize > MaxCallStack)
+                throw new InvalidFontException("Stack overflow; infinite recursion?");
+
+            var function = functions[stack.Pop()];
+            var currentIp = ip;
+            var currentInstructions = instructions;
+
+            callStackSize++;
+            Execute(function.Instructions, function.Offset, true);
+            callStackSize--;
+
+            // restore our instruction stream
+            ip = currentIp;
+            instructions = currentInstructions;
+        }
+
+        void LoopCall () {
+            if (callStackSize > MaxCallStack)
+                throw new InvalidFontException("Stack overflow; infinite recursion?");
+
+            var function = functions[stack.Pop()];
+            var currentIp = ip;
+            var currentInstructions = instructions;
+
+            callStackSize++;
+
+            var count = stack.Pop();
+            for (int i = 0; i < count; i++)
+                Execute(function.Instructions, function.Offset, true);
+
+            callStackSize--;
+
+            // restore our instruction stream
+            ip = currentIp;
+            instructions = currentInstructions;
+        }
+
+        static float F26Dot6ToFloat (int value) => value / 64.0f;
+        static int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
+
+        const int MaxCallStack = 128;
 
         enum OpCode : byte {
             SVTCA0,
@@ -442,6 +538,10 @@ namespace SharpFont {
             DEPTH,
             CINDEX,
             MINDEX,
+            LOOPCALL = 0x2A,
+            CALL,
+            FDEF,
+            ENDF,
             NPUSHB = 0x40,
             NPUSHW,
             WS = 0x42,

@@ -36,7 +36,7 @@ namespace GpuExample {
             var pen = new Vector2(32, 64);
             char previous = '\0';
 
-            var pixelSize = FontFace.ComputePixelSize(32.0f, 96);
+            var pixelSize = FontFace.ComputePixelSize(8.0f, 96);
 
             foreach (var c in text) {
                 var glyph = typeface.GetGlyph(c, pixelSize);
