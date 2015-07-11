@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using System.Text;
@@ -101,16 +102,19 @@ namespace SharpFont {
         byte[] instructions;
         int[] storage;
         float scale;
+        int ppem;
         int ip;
         int callStackSize;
+        Zone zp0, zp1, zp2;
 
         public Interpreter (int maxStack, int maxStorage, int maxFunctions) {
             stack = new ExecutionStack(maxStack);
             storage = new int[maxStorage];
             functions = new FunctionDef[maxFunctions];
+            state = new GraphicsState();
         }
 
-        public void SetControlValueTable (FUnit[] cvt, float scale, byte[] cvProgram) {
+        public void SetControlValueTable (FUnit[] cvt, float scale, float ppem, byte[] cvProgram) {
             if (this.scale == scale || cvt == null)
                 return;
 
@@ -118,6 +122,8 @@ namespace SharpFont {
                 controlValueTable = new float[cvt.Length];
 
             this.scale = scale;
+            this.ppem = (int)Math.Round(ppem);
+
             for (int i = 0; i < cvt.Length; i++)
                 controlValueTable[i] = cvt[i] * scale;
 
@@ -135,6 +141,7 @@ namespace SharpFont {
             var length = instructions.Length;
             while (ip < length) {
                 var opcode = NextOpCode();
+                DebugPrint(opcode);
                 switch (opcode) {
                     // ==== PUSH INSTRUCTIONS ====
                     case OpCode.NPUSHB: PushBytes(NextByte()); break;
@@ -157,32 +164,91 @@ namespace SharpFont {
                     case OpCode.PUSHW8: PushWords(opcode - OpCode.PUSHW1 + 1); break;
 
                     // ==== STORAGE MANAGEMENT ====
-                    case OpCode.RS: ReadStorage(); break;
-                    case OpCode.WS: WriteStorage(); break;
+                    case OpCode.RS:
+                        {
+                            var loc = stack.Pop();
+                            CheckIndex(loc, storage.Length);
+                            stack.Push(storage[loc]);
+                        }
+                        break;
+                    case OpCode.WS:
+                        {
+                            var value = stack.Pop();
+                            var loc = stack.Pop();
+                            CheckIndex(loc, storage.Length);
+                            storage[loc] = value;
+                        }
+                        break;
 
                     // ==== CONTROL VALUE TABLE ====
-                    case OpCode.WCVTP: WriteCvtP(); break;
-                    case OpCode.WCVTF: WriteCvtF(); break;
-                    case OpCode.RCVT: ReadCvt(); break;
+                    case OpCode.WCVTP:
+                        {
+                            var value = stack.Pop();
+                            var loc = stack.Pop();
+                            CheckIndex(loc, controlValueTable.Length);
+                            controlValueTable[loc] = F26Dot6ToFloat(value);
+                        }
+                        break;
+                    case OpCode.WCVTF:
+                        {
+                            var value = stack.Pop();
+                            var loc = stack.Pop();
+                            CheckIndex(loc, controlValueTable.Length);
+                            controlValueTable[loc] = value * scale;
+                        }
+                        break;
+                    case OpCode.RCVT:
+                        {
+                            var loc = stack.Pop();
+                            CheckIndex(loc, controlValueTable.Length);
+                            stack.Push(FloatToF26Dot6(controlValueTable[loc]));
+                        }
+                        break;
 
                     // ==== STATE VECTORS ====
                     case OpCode.SVTCA0:
-                    case OpCode.SVTCA1: SetVectorsToAxis(opcode - OpCode.SVTCA0); break;
+                    case OpCode.SVTCA1:
+                        {
+                            var axis = opcode - OpCode.SVTCA0;
+                            SetFreedomVectorToAxis(axis);
+                            SetProjectionVectorToAxis(axis);
+                        }
+                        break;
+                    case OpCode.SFVTPV: state.Freedom = state.Projection; break;
                     case OpCode.SPVTCA0:
                     case OpCode.SPVTCA1: SetProjectionVectorToAxis(opcode - OpCode.SPVTCA0); break;
                     case OpCode.SFVTCA0:
                     case OpCode.SFVTCA1: SetFreedomVectorToAxis(opcode - OpCode.SFVTCA0); break;
                     case OpCode.SPVTL0:
-                    case OpCode.SPVTL1: SetProjectionVectorToLine(opcode - OpCode.SPVTL0); break;
+                    case OpCode.SPVTL1:
                     case OpCode.SFVTL0:
-                    case OpCode.SFVTL1: SetFreedomVectorToLine(opcode - OpCode.SFVTL0); break;
-                    case OpCode.SFVTPV: SetFreedomVectorToProjectionVector(); break;
+                    case OpCode.SFVTL1: SetVectorToLine(opcode - OpCode.SPVTL0, false); break;
                     case OpCode.SDPVTL0:
-                    case OpCode.SDPVTL1: SetDualProjectionVectorToLine(opcode - OpCode.SDPVTL0); break;
-                    case OpCode.SPVFS: SetProjectionVectorFromStack(); break;
-                    case OpCode.SFVFS: SetFreedomVectorFromStack(); break;
-                    case OpCode.GPV: GetProjectionVector(); break;
-                    case OpCode.GFV: GetFreedomVector(); break;
+                    case OpCode.SDPVTL1: SetVectorToLine(opcode - OpCode.SDPVTL0, true); break;
+                    case OpCode.SPVFS:
+                    case OpCode.SFVFS:
+                        {
+                            var vec = Vector2.Normalize(new Vector2(
+                                F2Dot14ToFloat(stack.Pop()),
+                                F2Dot14ToFloat(stack.Pop())
+                            ));
+
+                            if (opcode == OpCode.SPVFS)
+                                state.Freedom = vec;
+                            else {
+                                state.Projection = vec;
+                                state.DualProjection = vec;
+                            }
+                        }
+                        break;
+                    case OpCode.GPV:
+                    case OpCode.GFV:
+                        {
+                            var vec = opcode == OpCode.GPV ? state.Projection : state.Freedom;
+                            stack.Push(FloatToF2Dot14(vec.X));
+                            stack.Push(FloatToF2Dot14(vec.Y));
+                        }
+                        break;
 
                     // ==== GRAPHICS STATE ====
                     case OpCode.SRP0: state.Rp0 = stack.Pop(); break;
@@ -215,7 +281,7 @@ namespace SharpFont {
                     // ==== FLOW CONTROL ====
                     case OpCode.IF: If(); break;
                     case OpCode.ELSE: Else(); break;
-                    case OpCode.EIF: throw new InvalidFontException();
+                    case OpCode.EIF: /* nothing to do */ break;
                     case OpCode.JROT: JumpRelative(true); break;
                     case OpCode.JROF: JumpRelative(false); break;
                     case OpCode.JMPR: Jump(stack.Pop() - 1); break;
@@ -232,14 +298,14 @@ namespace SharpFont {
                     case OpCode.NOT: stack.Push(!stack.PopBool()); break;
 
                     // ==== ARITHMETIC ====
-                    //case OpCode.ADD: Add(); break;
-                    //case OpCode.SUB: Subtract(); break;
-                    //case OpCode.DIV: Divide(); break;
-                    //case OpCode.MUL: Multiply(); break;
+                    case OpCode.ADD: Add(); break;
+                    case OpCode.SUB: Subtract(); break;
+                    case OpCode.DIV: Divide(); break;
+                    case OpCode.MUL: Multiply(); break;
                     case OpCode.ABS: stack.Push(Math.Abs(stack.Pop())); break;
                     case OpCode.NEG: stack.Push(-stack.Pop()); break;
-                    //case OpCode.FLOOR: Floor(); break;
-                    //case OpCode.CEILING: Ceiling(); break;
+                    case OpCode.FLOOR: Floor(); break;
+                    case OpCode.CEILING: Ceiling(); break;
                     case OpCode.MAX: stack.Push(Math.Max(stack.Pop(), stack.Pop())); break;
                     case OpCode.MIN: stack.Push(Math.Min(stack.Pop(), stack.Pop())); break;
 
@@ -249,6 +315,11 @@ namespace SharpFont {
                     case OpCode.CALL: Call(); break;
                     case OpCode.LOOPCALL: LoopCall(); break;
 
+                    // ==== POINT MEASUREMENT ====
+                    case OpCode.GC0:
+                    case OpCode.GC1: GetCoordinate(opcode - OpCode.GC0); break;
+                    case OpCode.MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
+                    case OpCode.MPPEM: stack.Push(ppem); break;
 
                     default:
                         throw new InvalidFontException("Unknown opcode in font program.");
@@ -287,75 +358,71 @@ namespace SharpFont {
                 stack.Push(NextWord());
         }
 
-        // ==== Storage management ====
-        void ReadStorage () {
-            var loc = stack.Pop();
-            CheckIndex(loc, storage.Length);
-            stack.Push(storage[loc]);
-        }
-
-        void WriteStorage () {
-            var value = stack.Pop();
-            var loc = stack.Pop();
-            CheckIndex(loc, storage.Length);
-            storage[loc] = value;
-        }
-
-        // ==== Control Value Table ====
-        void WriteCvtP () {
-            var value = stack.Pop();
-            var loc = stack.Pop();
-            CheckIndex(loc, controlValueTable.Length);
-            controlValueTable[loc] = F26Dot6ToFloat(value);
-        }
-
-        void WriteCvtF () {
-            var value = stack.Pop();
-            var loc = stack.Pop();
-            CheckIndex(loc, controlValueTable.Length);
-            controlValueTable[loc] = value * scale;
-        }
-
-        void ReadCvt () {
-            var loc = stack.Pop();
-            CheckIndex(loc, controlValueTable.Length);
-            stack.Push(FloatToF26Dot6(controlValueTable[loc]));
-        }
-
         void CheckIndex (int index, int length) {
             if (index < 0 || index >= length)
                 throw new InvalidFontException();
         }
 
-        // ==== State vector management ====	
-        void SetVectorsToAxis (int axis) {
-            SetFreedomVectorToAxis(axis);
-            SetProjectionVectorToAxis(axis);
-        }
+        // ==== State vector management ====
 
-        void SetProjectionVectorToAxis (int axis) => state.Projection = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
         void SetFreedomVectorToAxis (int axis) => state.Freedom = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
-        void SetFreedomVectorToProjectionVector () => state.Freedom = state.Projection;
 
-        void SetProjectionVectorToLine (int mode) {
+        void SetProjectionVectorToAxis (int axis) {
+            state.Projection = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
+            state.DualProjection = state.Projection;
         }
 
-        void SetFreedomVectorToLine (int mode) {
-        }
+        void SetVectorToLine (int mode, bool dual) {
+            // mode here should be as follows:
+            // 0: SPVTL0
+            // 1: SPVTL1
+            // 2: SFVTL0
+            // 3: SFVTL1
+            var index1 = stack.Pop();
+            var index2 = stack.Pop();
+            var p1 = zp2.GetCurrent(index1);
+            var p2 = zp1.GetCurrent(index2);
 
-        void SetDualProjectionVectorToLine (int mode) {
-        }
+            var line = p2 - p1;
+            if (line.LengthSquared() == 0) {
+                // invalid; just set to whatever
+                if (mode >= 2)
+                    state.Freedom = Vector2.UnitX;
+                else {
+                    state.Projection = Vector2.UnitX;
+                    state.DualProjection = Vector2.UnitX;
+                }
+            }
+            else {
+                // if mode is 1 or 3, we want a perpendicular vector
+                if ((mode & 0x1) != 0)
+                    line = new Vector2(-line.Y, line.X);
 
-        void SetProjectionVectorFromStack () {
-        }
+                line = Vector2.Normalize(line);
 
-        void SetFreedomVectorFromStack () {
-        }
+                if (mode >= 2)
+                    state.Freedom = line;
+                else {
+                    state.Projection = line;
+                    state.DualProjection = line;
+                }
+            }
 
-        void GetProjectionVector () {
-        }
+            // set the dual projection vector using original points
+            if (dual) {
+                p1 = zp2.GetOriginal(index1);
+                p2 = zp2.GetOriginal(index2);
+                line = p2 - p1;
 
-        void GetFreedomVector () {
+                if (line.LengthSquared() == 0)
+                    state.DualProjection = Vector2.UnitX;
+                else {
+                    if ((mode & 0x1) != 0)
+                        line = new Vector2(-line.Y, line.X);
+
+                    state.DualProjection = Vector2.Normalize(line);
+                }
+            }
         }
 
         // ==== Graphics state management ====
@@ -443,6 +510,44 @@ namespace SharpFont {
             stack.Push(a || b);
         }
 
+        // ==== Arithmetic ====
+        void Add () {
+            var b = stack.Pop();
+            var a = stack.Pop();
+            stack.Push(a + b);
+        }
+
+        void Subtract () {
+            var b = stack.Pop();
+            var a = stack.Pop();
+            stack.Push(a - b);
+        }
+
+        void Divide () {
+            var b = stack.Pop();
+            if (b == 0)
+                throw new InvalidFontException("Division by zero.");
+
+            var a = stack.Pop();
+            var result = ((long)a << 6) / b;
+            stack.Push((int)result);
+        }
+
+        void Multiply () {
+            var b = stack.Pop();
+            var a = stack.Pop();
+            var result = ((long)a * b) >> 6;
+            stack.Push((int)result);
+        }
+
+        void Floor () {
+            stack.Push(stack.Pop() & ~63);
+        }
+
+        void Ceiling () {
+            stack.Push((stack.Pop() + 63) & ~63);
+        }
+
         // ==== Function Calls ====
         void DefineFunction (bool inFunction) {
             if (inFunction)
@@ -456,7 +561,7 @@ namespace SharpFont {
             if (!inFunction)
                 throw new InvalidFontException("Found invalid ENDF marker outside of a function definition.");
 
-            // nothing to do here; our caller will break the loop and return to its parent caller
+            // nothing to do here; our caller will break the loop and return to its parent
         }
 
         void Call () {
@@ -497,10 +602,54 @@ namespace SharpFont {
             instructions = currentInstructions;
         }
 
+        // ==== Point Measurement ====
+        void GetCoordinate (int mode) {
+        }
+
+        static void DebugPrint (OpCode opcode) {
+            switch (opcode) {
+                case OpCode.FDEF:
+                case OpCode.PUSHB1:
+                case OpCode.PUSHB2:
+                case OpCode.PUSHB3:
+                case OpCode.PUSHB4:
+                case OpCode.PUSHB5:
+                case OpCode.PUSHB6:
+                case OpCode.PUSHB7:
+                case OpCode.PUSHB8:
+                case OpCode.PUSHW1:
+                case OpCode.PUSHW2:
+                case OpCode.PUSHW3:
+                case OpCode.PUSHW4:
+                case OpCode.PUSHW5:
+                case OpCode.PUSHW6:
+                case OpCode.PUSHW7:
+                case OpCode.PUSHW8:
+                case OpCode.NPUSHB:
+                case OpCode.NPUSHW:
+                    return;
+            }
+
+            Debug.WriteLine(opcode);
+        }
+
+        static float F2Dot14ToFloat (int value) => (short)value / 16384.0f;
+        static int FloatToF2Dot14 (float value) => (int)(uint)(short)Math.Round(value * 16384.0f);
+
         static float F26Dot6ToFloat (int value) => value / 64.0f;
         static int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
 
         const int MaxCallStack = 128;
+
+        struct Zone {
+            public Vector2 GetCurrent (int index) {
+                return Vector2.Zero;
+            }
+
+            public Vector2 GetOriginal (int index) {
+                return Vector2.Zero;
+            }
+        }
 
         enum OpCode : byte {
             SVTCA0,
@@ -548,6 +697,11 @@ namespace SharpFont {
             RS,
             WCVTP,
             RCVT,
+            GC0,
+            GC1,
+            SCFS,
+            MPPEM = 0x4B,
+            MPS,
             FLIPON = 0x4D,
             FLIPOFF,
             LT = 0x50,

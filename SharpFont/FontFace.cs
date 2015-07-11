@@ -180,7 +180,7 @@ namespace SharpFont {
 
             // set up the control value table
             var scale = ComputeScale(pixelSize);
-            interpreter.SetControlValueTable(controlValueTable, scale, prepProgram);
+            interpreter.SetControlValueTable(controlValueTable, scale, pixelSize, prepProgram);
 
             // get metrics
             var glyph = glyphs[glyphIndex];
@@ -228,7 +228,7 @@ namespace SharpFont {
 
         float ComputeScale (float pixelSize) {
             if (integerPpems)
-                pixelSize = (float)Math.Round(pixelSize, MidpointRounding.AwayFromZero);
+                pixelSize = (float)Math.Round(pixelSize);
             return pixelSize / unitsPerEm;
         }
     }
