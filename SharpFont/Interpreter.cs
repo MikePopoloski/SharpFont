@@ -9,24 +9,47 @@ using System.Threading.Tasks;
 namespace SharpFont {
     class GraphicsState {
         public bool AutoFlip = true;
+        public float ControlValueCutIn = 17.0f / 16.0f;
         public int DeltaBase = 9;
         public int DeltaShift = 3;
-        public Vector2 DualProjection;
+        public Vector2 DualProjection = Vector2.UnitX;
         public Vector2 Freedom = Vector2.UnitX;
-        public int Gep0 = 1;
-        public int Gep1 = 1;
-        public int Gep2 = 1;
-        public int InstructionControl = 0;
+        public ZoneType Gep0 = ZoneType.Points;
+        public ZoneType Gep1 = ZoneType.Points;
+        public ZoneType Gep2 = ZoneType.Points;
+        public InstructionControlFlags InstructionControl;
         public int Loop = 1;
-        public int MinDistance = 1;
+        public float MinDistance = 1.0f;
         public Vector2 Projection = Vector2.UnitX;
-        public int RoundState = 1;
-        public int Rp0 = 0;
-        public int Rp1 = 0;
-        public int Rp2 = 0;
-        public bool ScanControl = false;
-        public int SingleWidthCutIn = 0;
-        public int SingleWidthValue = 0;
+        public RoundMode RoundState = RoundMode.ToGrid;
+        public int Rp0;
+        public int Rp1;
+        public int Rp2;
+        public float SingleWidthCutIn;
+        public float SingleWidthValue;
+    }
+
+    enum ZoneType {
+        Twilight,
+        Points
+    }
+
+    enum RoundMode {
+        ToHalfGrid,
+        ToGrid,
+        ToDoubleGrid,
+        DownToGrid,
+        UpToGrid,
+        Off,
+        Super,
+        Super45
+    }
+
+    [Flags]
+    enum InstructionControlFlags {
+        None,
+        InhibitGridFitting = 0x1,
+        UseDefaultGraphicsState = 0x2
     }
 
     class ExecutionStack {
@@ -105,7 +128,11 @@ namespace SharpFont {
         int ppem;
         int ip;
         int callStackSize;
+        float roundThreshold;
+        float roundPhase;
+        float roundPeriod;
         Zone zp0, zp1, zp2;
+        Zone points, twilight;
 
         public Interpreter (int maxStack, int maxStorage, int maxFunctions) {
             stack = new ExecutionStack(maxStack);
@@ -133,8 +160,8 @@ namespace SharpFont {
 
         public void Execute (byte[] instructions) => Execute(instructions, 0, false);
 
-        void Execute (byte[] instructions, int offset, bool inFunction) {
-            this.instructions = instructions;
+        void Execute (byte[] instr, int offset, bool inFunction) {
+            instructions = instr;
             ip = offset;
 
             // dispatch each instruction in the stream
@@ -254,19 +281,68 @@ namespace SharpFont {
                     case OpCode.SRP0: state.Rp0 = stack.Pop(); break;
                     case OpCode.SRP1: state.Rp1 = stack.Pop(); break;
                     case OpCode.SRP2: state.Rp2 = stack.Pop(); break;
-                    case OpCode.SZP0: state.Gep0 = GetZoneIndex(); break;
-                    case OpCode.SZP1: state.Gep1 = GetZoneIndex(); break;
-                    case OpCode.SZP2: state.Gep2 = GetZoneIndex(); break;
-                    case OpCode.SZPS: SetAllZonePointers(); break;
+                    case OpCode.SZP0: state.Gep0 = GetZoneFromStack(out zp0); break;
+                    case OpCode.SZP1: state.Gep1 = GetZoneFromStack(out zp1); break;
+                    case OpCode.SZP2: state.Gep2 = GetZoneFromStack(out zp2); break;
+                    case OpCode.SZPS:
+                        {
+                            Zone zone;
+                            var index = GetZoneFromStack(out zone);
+                            state.Gep0 = index; zp0 = zone;
+                            state.Gep1 = index; zp1 = zone;
+                            state.Gep2 = index; zp2 = zone;
+                        }
+                        break;
+                    case OpCode.RTHG: state.RoundState = RoundMode.ToHalfGrid; break;
+                    case OpCode.RTG: state.RoundState = RoundMode.ToGrid; break;
+                    case OpCode.RTDG: state.RoundState = RoundMode.ToDoubleGrid; break;
+                    case OpCode.RDTG: state.RoundState = RoundMode.DownToGrid; break;
+                    case OpCode.RUTG: state.RoundState = RoundMode.UpToGrid; break;
+                    case OpCode.ROFF: state.RoundState = RoundMode.Off; break;
+                    case OpCode.SROUND:
+                        {
+                            state.RoundState = RoundMode.Super;
+                            SetSuperRound(1.0f, stack.Pop());
+                        }
+                        break;
+                    case OpCode.S45ROUND:
+                        {
+                            state.RoundState = RoundMode.Super45;
+                            SetSuperRound(Sqrt2Over2, stack.Pop());
+                        }
+                        break;
+                    case OpCode.INSTCTRL:
+                        {
+                            var selector = stack.Pop();
+                            var value = stack.Pop();
+                            if (selector >= 1 && selector <= 2) {
+                                // value is false if zero, otherwise shift the right bit into the flags
+                                var bit = 1 << (selector - 1);
+                                if (value == 0)
+                                    state.InstructionControl = (InstructionControlFlags)((int)state.InstructionControl & ~bit);
+                                else
+                                    state.InstructionControl = (InstructionControlFlags)((int)state.InstructionControl | bit);
+                            }
+                        }
+                        break;
+                    case OpCode.SCANCTRL: /* instruction unspported */ stack.Pop(); break;
+                    case OpCode.SCANTYPE: /* instruction unspported */ stack.Pop(); break;
+                    case OpCode.SANGW: /* instruction unspported */ stack.Pop(); break;
                     case OpCode.SLOOP: state.Loop = stack.Pop(); break;
-                    case OpCode.SMD: state.MinDistance = stack.Pop(); break;
-                    case OpCode.SSWCI: state.SingleWidthCutIn = stack.Pop(); break;
-                    case OpCode.SSW: state.SingleWidthValue = stack.Pop(); break;
+                    case OpCode.SMD: state.MinDistance = F26Dot6ToFloat(stack.Pop()); break;
+                    case OpCode.SCVTCI: state.ControlValueCutIn = F26Dot6ToFloat(stack.Pop()); break;
+                    case OpCode.SSWCI: state.SingleWidthCutIn = F26Dot6ToFloat(stack.Pop()); break;
+                    case OpCode.SSW: state.SingleWidthValue = stack.Pop() * scale; break;
                     case OpCode.FLIPON: state.AutoFlip = true; break;
                     case OpCode.FLIPOFF: state.AutoFlip = false; break;
-                    case OpCode.SANGW: /* instruction unspported */ break;
                     case OpCode.SDB: state.DeltaBase = stack.Pop(); break;
                     case OpCode.SDS: state.DeltaShift = stack.Pop(); break;
+
+                    // ==== POINT MEASUREMENT ====
+                    case OpCode.GC0:
+                    case OpCode.GC1: GetCoordinate(opcode - OpCode.GC0); break;
+                    case OpCode.MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
+                    case OpCode.MPPEM: stack.Push(ppem); break;
 
                     // ==== STACK MANAGEMENT ====
                     case OpCode.DUP: stack.Duplicate(); break;
@@ -279,55 +355,214 @@ namespace SharpFont {
                     case OpCode.ROLL: stack.Roll(); break;
 
                     // ==== FLOW CONTROL ====
-                    case OpCode.IF: If(); break;
-                    case OpCode.ELSE: Else(); break;
+                    case OpCode.IF:
+                        {
+                            // value is false; jump to the next else block or endif marker
+                            // otherwise, we don't have to do anything; we'll keep executing this block
+                            if (stack.PopBool())
+                                SeekEither(OpCode.ELSE, OpCode.EIF);
+                        }
+                        break;
+                    case OpCode.ELSE:
+                        {
+                            // assume we hit the true statement of some previous if block
+                            // if we had hit false, we would have jumped over this
+                            Seek(OpCode.EIF);
+                        }
+                        break;
                     case OpCode.EIF: /* nothing to do */ break;
                     case OpCode.JROT: JumpRelative(true); break;
                     case OpCode.JROF: JumpRelative(false); break;
                     case OpCode.JMPR: Jump(stack.Pop() - 1); break;
 
                     // ==== LOGICAL OPS ====
-                    case OpCode.LT: LessThan(); break;
-                    case OpCode.LTEQ: LessThanOrEqual(); break;
-                    case OpCode.GT: GreaterThan(); break;
-                    case OpCode.GTEQ: GreaterThanOrEqual(); break;
-                    case OpCode.EQ: Equal(); break;
-                    case OpCode.NEQ: NotEqual(); break;
-                    case OpCode.AND: And(); break;
-                    case OpCode.OR: Or(); break;
+                    case OpCode.LT:
+                        {
+                            var b = (uint)stack.Pop();
+                            var a = (uint)stack.Pop();
+                            stack.Push(a < b);
+                        }
+                        break;
+                    case OpCode.LTEQ:
+                        {
+                            var b = (uint)stack.Pop();
+                            var a = (uint)stack.Pop();
+                            stack.Push(a <= b);
+                        }
+                        break;
+                    case OpCode.GT:
+                        {
+                            var b = (uint)stack.Pop();
+                            var a = (uint)stack.Pop();
+                            stack.Push(a > b);
+                        }
+                        break;
+                    case OpCode.GTEQ:
+                        {
+                            var b = (uint)stack.Pop();
+                            var a = (uint)stack.Pop();
+                            stack.Push(a >= b);
+                        }
+                        break;
+                    case OpCode.EQ:
+                        {
+                            var b = (uint)stack.Pop();
+                            var a = (uint)stack.Pop();
+                            stack.Push(a == b);
+                        }
+                        break;
+                    case OpCode.NEQ:
+                        {
+                            var b = (uint)stack.Pop();
+                            var a = (uint)stack.Pop();
+                            stack.Push(a != b);
+                        }
+                        break;
+                    case OpCode.AND:
+                        {
+                            var b = stack.PopBool();
+                            var a = stack.PopBool();
+                            stack.Push(a && b);
+                        }
+                        break;
+                    case OpCode.OR:
+                        {
+                            var b = stack.PopBool();
+                            var a = stack.PopBool();
+                            stack.Push(a || b);
+                        }
+                        break;
                     case OpCode.NOT: stack.Push(!stack.PopBool()); break;
 
                     // ==== ARITHMETIC ====
-                    case OpCode.ADD: Add(); break;
-                    case OpCode.SUB: Subtract(); break;
-                    case OpCode.DIV: Divide(); break;
-                    case OpCode.MUL: Multiply(); break;
+                    case OpCode.ADD:
+                        {
+                            var b = stack.Pop();
+                            var a = stack.Pop();
+                            stack.Push(a + b);
+                        }
+                        break;
+                    case OpCode.SUB:
+                        {
+                            var b = stack.Pop();
+                            var a = stack.Pop();
+                            stack.Push(a - b);
+                        }
+                        break;
+                    case OpCode.DIV:
+                        {
+                            var b = stack.Pop();
+                            if (b == 0)
+                                throw new InvalidFontException("Division by zero.");
+
+                            var a = stack.Pop();
+                            var result = ((long)a << 6) / b;
+                            stack.Push((int)result);
+                        }
+                        break;
+                    case OpCode.MUL:
+                        {
+                            var b = stack.Pop();
+                            var a = stack.Pop();
+                            var result = ((long)a * b) >> 6;
+                            stack.Push((int)result);
+                        }
+                        break;
                     case OpCode.ABS: stack.Push(Math.Abs(stack.Pop())); break;
                     case OpCode.NEG: stack.Push(-stack.Pop()); break;
-                    case OpCode.FLOOR: Floor(); break;
-                    case OpCode.CEILING: Ceiling(); break;
+                    case OpCode.FLOOR: stack.Push(stack.Pop() & ~63); break;
+                    case OpCode.CEILING: stack.Push((stack.Pop() + 63) & ~63); break;
                     case OpCode.MAX: stack.Push(Math.Max(stack.Pop(), stack.Pop())); break;
                     case OpCode.MIN: stack.Push(Math.Min(stack.Pop(), stack.Pop())); break;
 
                     // ==== FUNCTIONS ====
-                    case OpCode.FDEF: DefineFunction(inFunction); break;
-                    case OpCode.ENDF: Return(inFunction); return;
-                    case OpCode.CALL: Call(); break;
-                    case OpCode.LOOPCALL: LoopCall(); break;
+                    case OpCode.FDEF:
+                        {
+                            if (inFunction)
+                                throw new InvalidFontException("Can't define a function inside another function.");
 
-                    // ==== POINT MEASUREMENT ====
-                    case OpCode.GC0:
-                    case OpCode.GC1: GetCoordinate(opcode - OpCode.GC0); break;
-                    case OpCode.MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
-                    case OpCode.MPPEM: stack.Push(ppem); break;
+                            functions[stack.Pop()] = new FunctionDef(instructions, ip);
+                            Seek(OpCode.ENDF);
+                        }
+                        break;
+                    case OpCode.ENDF:
+                        {
+                            if (!inFunction)
+                                throw new InvalidFontException("Found invalid ENDF marker outside of a function definition.");
+                            return;     // return to caller
+                        }
+                    case OpCode.CALL:
+                        {
+                            if (callStackSize > MaxCallStack)
+                                throw new InvalidFontException("Stack overflow; infinite recursion?");
+
+                            var function = functions[stack.Pop()];
+                            var currentIp = ip;
+                            var currentInstructions = instructions;
+
+                            callStackSize++;
+                            Execute(function.Instructions, function.Offset, true);
+                            callStackSize--;
+
+                            // restore our instruction stream
+                            ip = currentIp;
+                            instructions = currentInstructions;
+                        }
+                        break;
+                    case OpCode.LOOPCALL:
+                        {
+                            if (callStackSize > MaxCallStack)
+                                throw new InvalidFontException("Stack overflow; infinite recursion?");
+
+                            var function = functions[stack.Pop()];
+                            var currentIp = ip;
+                            var currentInstructions = instructions;
+
+                            callStackSize++;
+
+                            var count = stack.Pop();
+                            for (int i = 0; i < count; i++)
+                                Execute(function.Instructions, function.Offset, true);
+
+                            callStackSize--;
+
+                            // restore our instruction stream
+                            ip = currentIp;
+                            instructions = currentInstructions;
+                        }
+                        break;
+
+                    // ==== MISCELLANEOUS ====
+                    case OpCode.DEBUG: stack.Pop(); break;
+                    case OpCode.GETINFO:
+                        {
+                            var selector = stack.Pop();
+                            var result = 0;
+                            if ((selector & 0x1) != 0) {
+                                // pretend we are MS Rasterizer v38
+                                result = 38;
+                            }
+
+                            // TODO: rotation and stretching
+                            //if ((selector & 0x2) != 0)
+                            //if ((selector & 0x4) != 0)
+
+                            // we're always rendering in grayscale
+                            if ((selector & 0x20) != 0)
+                                result |= 1 << 12;
+
+                            // TODO: ClearType flags
+
+                            stack.Push(result);
+                        }
+                        break;
 
                     default:
                         throw new InvalidFontException("Unknown opcode in font program.");
                 }
             }
         }
-
-        // ==== instruction stream management ====
+        
         int NextByte () {
             if (ip >= instructions.Length)
                 throw new InvalidFontException();
@@ -346,8 +581,7 @@ namespace SharpFont {
         int NextWord () => NextByte() << 8 | NextByte();
         void Seek (OpCode o) => SeekEither(o, o);
         void Jump (int offset) => ip += offset;
-
-        // ==== PUSH instructions ====
+        
         void PushBytes (int count) {
             for (int i = 0; i < count; i++)
                 stack.Push(NextByte());
@@ -362,9 +596,7 @@ namespace SharpFont {
             if (index < 0 || index >= length)
                 throw new InvalidFontException();
         }
-
-        // ==== State vector management ====
-
+        
         void SetFreedomVectorToAxis (int axis) => state.Freedom = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
 
         void SetProjectionVectorToAxis (int axis) {
@@ -424,182 +656,47 @@ namespace SharpFont {
                 }
             }
         }
-
-        // ==== Graphics state management ====
-        int GetZoneIndex () {
-            var zone = stack.Pop();
-            if (zone < 0 || zone > 1)
-                throw new InvalidFontException();
-            return zone;
+        
+        ZoneType GetZoneFromStack (out Zone zone) {
+            var index = stack.Pop();
+            switch (index) {
+                case 0: zone = twilight; break;
+                case 1: zone = points; break;
+                default: throw new InvalidFontException("Invalid zone pointer.");
+            }
+            return (ZoneType)index;
         }
 
-        void SetAllZonePointers () {
-            var zone = GetZoneIndex();
-            state.Gep0 = zone;
-            state.Gep1 = zone;
-            state.Gep2 = zone;
-        }
+        void SetSuperRound (float period, int mode) {
+            // mode is a bunch of packed flags
+            // bits 7-6 are the period multiplier
+            switch (mode & 0xC0) {
+                case 0: roundPeriod = period / 2; break;
+                case 0x40: roundPeriod = period; break;
+                case 0x80: roundPeriod = period * 2; break;
+                default: throw new InvalidFontException("Unknown rounding period multiplier.");
+            }
 
-        // ==== Flow Control ====
-        void If () {
-            // value is false; jump to the next else block or endif marker
-            // otherwise, we don't have to do anything; we'll keep executing this block
-            if (stack.PopBool())
-                SeekEither(OpCode.ELSE, OpCode.EIF);
-        }
+            // bits 5-4 are the phase
+            switch (mode & 0x30) {
+                case 0: roundPhase = 0; break;
+                case 0x10: roundPhase = roundPeriod / 4; break;
+                case 0x20: roundPhase = roundPeriod / 2; break;
+                case 0x30: roundPhase = roundPeriod * 3 / 4; break;
+            }
 
-        void Else () {
-            // assume we hit the true statement of some previous if block
-            // if we had hit false, we would have jumped over this
-            Seek(OpCode.EIF);
+            // bits 3-0 are the threshold
+            if ((mode & 0xF) == 0)
+                roundThreshold = roundPeriod - 1;
+            else
+                roundThreshold = ((mode & 0xF) - 4) * roundPeriod / 8;
         }
-
+        
         void JumpRelative (bool comparand) {
             if (stack.PopBool() == comparand)
                 Jump(stack.Pop() - 1);
             else
                 stack.Pop();    // ignore the offset
-        }
-
-        // ==== Logical Operations ====
-        void LessThan () {
-            var b = (uint)stack.Pop();
-            var a = (uint)stack.Pop();
-            stack.Push(a < b);
-        }
-
-        void LessThanOrEqual () {
-            var b = (uint)stack.Pop();
-            var a = (uint)stack.Pop();
-            stack.Push(a <= b);
-        }
-
-        void GreaterThan () {
-            var b = (uint)stack.Pop();
-            var a = (uint)stack.Pop();
-            stack.Push(a > b);
-        }
-
-        void GreaterThanOrEqual () {
-            var b = (uint)stack.Pop();
-            var a = (uint)stack.Pop();
-            stack.Push(a >= b);
-        }
-
-        void Equal () {
-            var b = (uint)stack.Pop();
-            var a = (uint)stack.Pop();
-            stack.Push(a == b);
-        }
-
-        void NotEqual () {
-            var b = (uint)stack.Pop();
-            var a = (uint)stack.Pop();
-            stack.Push(a != b);
-        }
-
-        void And () {
-            var b = stack.PopBool();
-            var a = stack.PopBool();
-            stack.Push(a && b);
-        }
-
-        void Or () {
-            var b = stack.PopBool();
-            var a = stack.PopBool();
-            stack.Push(a || b);
-        }
-
-        // ==== Arithmetic ====
-        void Add () {
-            var b = stack.Pop();
-            var a = stack.Pop();
-            stack.Push(a + b);
-        }
-
-        void Subtract () {
-            var b = stack.Pop();
-            var a = stack.Pop();
-            stack.Push(a - b);
-        }
-
-        void Divide () {
-            var b = stack.Pop();
-            if (b == 0)
-                throw new InvalidFontException("Division by zero.");
-
-            var a = stack.Pop();
-            var result = ((long)a << 6) / b;
-            stack.Push((int)result);
-        }
-
-        void Multiply () {
-            var b = stack.Pop();
-            var a = stack.Pop();
-            var result = ((long)a * b) >> 6;
-            stack.Push((int)result);
-        }
-
-        void Floor () {
-            stack.Push(stack.Pop() & ~63);
-        }
-
-        void Ceiling () {
-            stack.Push((stack.Pop() + 63) & ~63);
-        }
-
-        // ==== Function Calls ====
-        void DefineFunction (bool inFunction) {
-            if (inFunction)
-                throw new InvalidFontException("Can't define a function inside another function.");
-
-            functions[stack.Pop()] = new FunctionDef(instructions, ip);
-            Seek(OpCode.ENDF);
-        }
-
-        void Return (bool inFunction) {
-            if (!inFunction)
-                throw new InvalidFontException("Found invalid ENDF marker outside of a function definition.");
-
-            // nothing to do here; our caller will break the loop and return to its parent
-        }
-
-        void Call () {
-            if (callStackSize > MaxCallStack)
-                throw new InvalidFontException("Stack overflow; infinite recursion?");
-
-            var function = functions[stack.Pop()];
-            var currentIp = ip;
-            var currentInstructions = instructions;
-
-            callStackSize++;
-            Execute(function.Instructions, function.Offset, true);
-            callStackSize--;
-
-            // restore our instruction stream
-            ip = currentIp;
-            instructions = currentInstructions;
-        }
-
-        void LoopCall () {
-            if (callStackSize > MaxCallStack)
-                throw new InvalidFontException("Stack overflow; infinite recursion?");
-
-            var function = functions[stack.Pop()];
-            var currentIp = ip;
-            var currentInstructions = instructions;
-
-            callStackSize++;
-
-            var count = stack.Pop();
-            for (int i = 0; i < count; i++)
-                Execute(function.Instructions, function.Offset, true);
-
-            callStackSize--;
-
-            // restore our instruction stream
-            ip = currentIp;
-            instructions = currentInstructions;
         }
 
         // ==== Point Measurement ====
@@ -639,6 +736,8 @@ namespace SharpFont {
         static float F26Dot6ToFloat (int value) => value / 64.0f;
         static int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
 
+        static readonly float Sqrt2Over2 = (float)(Math.Sqrt(2) / 2);
+
         const int MaxCallStack = 128;
 
         struct Zone {
@@ -675,10 +774,13 @@ namespace SharpFont {
             SZP2,
             SZPS,
             SLOOP,
+            RTG,
+            RTHG,
             SMD = 0x1A,
             ELSE,
             JMPR,
-            SSWCI = 0x1E,
+            SCVTCI,
+            SSWCI,
             SSW,
             DUP = 0x20,
             POP,
@@ -691,6 +793,7 @@ namespace SharpFont {
             CALL,
             FDEF,
             ENDF,
+            RTDG,
             NPUSHB = 0x40,
             NPUSHW,
             WS = 0x42,
@@ -702,8 +805,9 @@ namespace SharpFont {
             SCFS,
             MPPEM = 0x4B,
             MPS,
-            FLIPON = 0x4D,
+            FLIPON,
             FLIPOFF,
+            DEBUG,
             LT = 0x50,
             LTEQ,
             GT,
@@ -726,14 +830,23 @@ namespace SharpFont {
             FLOOR,
             CEILING,
             WCVTF = 0x70,
-            JROT = 0x78,
+            SROUND = 0x76,
+            S45ROUND,
+            JROT,
             JROF,
-            SANGW = 0x7E,
-            SDPVTL0 = 0x86,
+            ROFF = 0x7A,
+            RUTG = 0x7C,
+            RDTG,
+            SANGW,
+            SCANCTRL = 0x85,
+            SDPVTL0,
             SDPVTL1,
+            GETINFO,
             ROLL = 0x8A,
             MAX,
             MIN,
+            SCANTYPE,
+            INSTCTRL,
             PUSHB1 = 0xB0,
             PUSHB2,
             PUSHB3,
