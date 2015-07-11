@@ -128,6 +128,7 @@ namespace SharpFont {
         int ppem;
         int ip;
         int callStackSize;
+        float fdotp;
         float roundThreshold;
         float roundPhase;
         float roundPeriod;
@@ -241,7 +242,7 @@ namespace SharpFont {
                             SetProjectionVectorToAxis(axis);
                         }
                         break;
-                    case OpCode.SFVTPV: state.Freedom = state.Projection; break;
+                    case OpCode.SFVTPV: state.Freedom = state.Projection; OnVectorsUpdated(); break;
                     case OpCode.SPVTCA0:
                     case OpCode.SPVTCA1: SetProjectionVectorToAxis(opcode - OpCode.SPVTCA0); break;
                     case OpCode.SFVTCA0:
@@ -266,6 +267,8 @@ namespace SharpFont {
                                 state.Projection = vec;
                                 state.DualProjection = vec;
                             }
+
+                            OnVectorsUpdated();
                         }
                         break;
                     case OpCode.GPV:
@@ -340,7 +343,37 @@ namespace SharpFont {
 
                     // ==== POINT MEASUREMENT ====
                     case OpCode.GC0:
-                    case OpCode.GC1: GetCoordinate(opcode - OpCode.GC0); break;
+                        {
+                            var point = zp2.GetCurrent(stack.Pop());
+                            stack.Push(FloatToF26Dot6(Vector2.Dot(point, state.Projection)));
+                        }
+                        break;
+                    case OpCode.GC1:
+                        {
+                            var point = zp2.GetOriginal(stack.Pop());
+                            stack.Push(FloatToF26Dot6(Vector2.Dot(point, state.DualProjection)));
+                        }
+                        break;
+                    case OpCode.SCFS:
+                        {
+                            var value = F26Dot6ToFloat(stack.Pop());
+                            var index = stack.Pop();
+                            var point = zp2.GetCurrent(index);
+                            var projection = Vector2.Dot(point, state.DualProjection);
+                            point = MovePoint(point, value - projection);
+                            zp2.SetCurrent(index, point);
+
+                            // moving twilight points moves their "original" value also
+                            if (state.Gep2 == ZoneType.Twilight)
+                                zp2.SetOriginal(index, point);
+                        }
+                        break;
+                    case OpCode.MD0:
+                    case OpCode.MD1:
+                        {
+                            // TODO
+                        }
+                        break;
                     case OpCode.MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
                     case OpCode.MPPEM: stack.Push(ppem); break;
 
@@ -562,7 +595,7 @@ namespace SharpFont {
                 }
             }
         }
-        
+
         int NextByte () {
             if (ip >= instructions.Length)
                 throw new InvalidFontException();
@@ -581,7 +614,7 @@ namespace SharpFont {
         int NextWord () => NextByte() << 8 | NextByte();
         void Seek (OpCode o) => SeekEither(o, o);
         void Jump (int offset) => ip += offset;
-        
+
         void PushBytes (int count) {
             for (int i = 0; i < count; i++)
                 stack.Push(NextByte());
@@ -596,12 +629,23 @@ namespace SharpFont {
             if (index < 0 || index >= length)
                 throw new InvalidFontException();
         }
-        
-        void SetFreedomVectorToAxis (int axis) => state.Freedom = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
+
+        void OnVectorsUpdated () {
+            fdotp = Vector2.Dot(state.Freedom, state.Projection);
+            if (fdotp < Epsilon)
+                fdotp = 1.0f;
+        }
+
+        void SetFreedomVectorToAxis (int axis) {
+            state.Freedom = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
+            OnVectorsUpdated();
+        }
 
         void SetProjectionVectorToAxis (int axis) {
             state.Projection = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
             state.DualProjection = state.Projection;
+
+            OnVectorsUpdated();
         }
 
         void SetVectorToLine (int mode, bool dual) {
@@ -655,8 +699,10 @@ namespace SharpFont {
                     state.DualProjection = Vector2.Normalize(line);
                 }
             }
+
+            OnVectorsUpdated();
         }
-        
+
         ZoneType GetZoneFromStack (out Zone zone) {
             var index = stack.Pop();
             switch (index) {
@@ -691,18 +737,14 @@ namespace SharpFont {
             else
                 roundThreshold = ((mode & 0xF) - 4) * roundPeriod / 8;
         }
-        
+
         void JumpRelative (bool comparand) {
             if (stack.PopBool() == comparand)
                 Jump(stack.Pop() - 1);
             else
                 stack.Pop();    // ignore the offset
         }
-
-        // ==== Point Measurement ====
-        void GetCoordinate (int mode) {
-        }
-
+        
         static void DebugPrint (OpCode opcode) {
             switch (opcode) {
                 case OpCode.FDEF:
@@ -730,6 +772,8 @@ namespace SharpFont {
             Debug.WriteLine(opcode);
         }
 
+        Vector2 MovePoint (Vector2 point, float distance) => distance * point / fdotp;
+
         static float F2Dot14ToFloat (int value) => (short)value / 16384.0f;
         static int FloatToF2Dot14 (float value) => (int)(uint)(short)Math.Round(value * 16384.0f);
 
@@ -739,6 +783,7 @@ namespace SharpFont {
         static readonly float Sqrt2Over2 = (float)(Math.Sqrt(2) / 2);
 
         const int MaxCallStack = 128;
+        const float Epsilon = 0.000001f;
 
         struct Zone {
             public Vector2 GetCurrent (int index) {
@@ -747,6 +792,12 @@ namespace SharpFont {
 
             public Vector2 GetOriginal (int index) {
                 return Vector2.Zero;
+            }
+
+            public void SetCurrent (int index, Vector2 value) {
+            }
+
+            public void SetOriginal (int index, Vector2 value) {
             }
         }
 
@@ -803,7 +854,9 @@ namespace SharpFont {
             GC0,
             GC1,
             SCFS,
-            MPPEM = 0x4B,
+            MD0,
+            MD1,
+            MPPEM,
             MPS,
             FLIPON,
             FLIPOFF,
