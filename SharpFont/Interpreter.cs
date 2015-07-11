@@ -466,6 +466,18 @@ namespace SharpFont {
                         }
                         break;
                     case OpCode.NOT: stack.Push(!stack.PopBool()); break;
+                    case OpCode.ODD:
+                        {
+                            var value = (int)Round(F26Dot6ToFloat(stack.Pop()));
+                            stack.Push(value % 2 != 0);
+                        }
+                        break;
+                    case OpCode.EVEN:
+                        {
+                            var value = (int)Round(F26Dot6ToFloat(stack.Pop()));
+                            stack.Push(value % 2 == 0);
+                        }
+                        break;
 
                     // ==== ARITHMETIC ====
                     case OpCode.ADD:
@@ -564,6 +576,23 @@ namespace SharpFont {
                             instructions = currentInstructions;
                         }
                         break;
+
+                    // ==== ROUNDING ====
+                    // we don't have "engine compensation" so the variants are unnecessary
+                    case OpCode.ROUND0:
+                    case OpCode.ROUND1:
+                    case OpCode.ROUND2:
+                    case OpCode.ROUND3:
+                        {
+                            var value = F26Dot6ToFloat(stack.Pop());
+                            value = Round(value);
+                            stack.Push(FloatToF26Dot6(value));
+                        }
+                        break;
+                    case OpCode.NROUND0:
+                    case OpCode.NROUND1:
+                    case OpCode.NROUND2:
+                    case OpCode.NROUND3: break;
 
                     // ==== MISCELLANEOUS ====
                     case OpCode.DEBUG: stack.Pop(); break;
@@ -744,7 +773,30 @@ namespace SharpFont {
             else
                 stack.Pop();    // ignore the offset
         }
-        
+
+        float Round (float value) {
+            switch (state.RoundState) {
+                case RoundMode.ToGrid: return (float)Math.Round(value);
+                case RoundMode.ToHalfGrid: return (float)Math.Floor(value) + Math.Sign(value) * 0.5f;
+                case RoundMode.ToDoubleGrid: return (float)(Math.Round(value * 2, MidpointRounding.AwayFromZero) / 2);
+                case RoundMode.DownToGrid: return (float)Math.Floor(value);
+                case RoundMode.UpToGrid: return (float)Math.Ceiling(value);
+                case RoundMode.Super:
+                case RoundMode.Super45:
+                    var sign = Math.Sign(value);
+                    value = value - roundPhase + roundThreshold;
+                    value = (float)Math.Truncate(value / roundPeriod) * roundPeriod;
+                    value += roundPhase;
+                    if (sign < 0 && value > 0)
+                        value = -roundPhase;
+                    else if (sign >= 0 && value < 0)
+                        value = roundPhase;
+                    return value;
+
+                default: return value;
+            }
+        }
+
         static void DebugPrint (OpCode opcode) {
             switch (opcode) {
                 case OpCode.FDEF:
@@ -867,9 +919,11 @@ namespace SharpFont {
             GTEQ,
             EQ,
             NEQ,
-            IF = 0x58,
+            ODD,
+            EVEN,
+            IF,
             EIF,
-            AND = 0x5A,
+            AND,
             OR,
             NOT,
             SDB = 0x5E,
@@ -882,6 +936,14 @@ namespace SharpFont {
             NEG,
             FLOOR,
             CEILING,
+            ROUND0 = 0x68,
+            ROUND1,
+            ROUND2,
+            ROUND3,
+            NROUND0,
+            NROUND1,
+            NROUND2,
+            NROUND3,
             WCVTF = 0x70,
             SROUND = 0x76,
             S45ROUND,
