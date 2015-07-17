@@ -70,7 +70,7 @@ namespace SharpFont {
         public void Copy () => Copy(Pop() - 1);
         public void Copy (int index) => Push(Peek(index));
         public void Move () => Move(Pop() - 1);
-        public void Roll () => Move(2);
+        public void Roll () => Move(count - 3);
 
         public void Move (int index) {
             var val = Peek(index);
@@ -135,11 +135,13 @@ namespace SharpFont {
         Zone zp0, zp1, zp2;
         Zone points, twilight;
 
-        public Interpreter (int maxStack, int maxStorage, int maxFunctions) {
+        public Interpreter (int maxStack, int maxStorage, int maxFunctions, int maxTwilightPoints) {
             stack = new ExecutionStack(maxStack);
             storage = new int[maxStorage];
             functions = new FunctionDef[maxFunctions];
             state = new GraphicsState();
+
+            twilight = new Zone(new PointF[maxTwilightPoints], isTwilight: true);
         }
 
         public void SetControlValueTable (FUnit[] cvt, float scale, float ppem, byte[] cvProgram) {
@@ -225,13 +227,7 @@ namespace SharpFont {
                             controlValueTable[loc] = value * scale;
                         }
                         break;
-                    case OpCode.RCVT:
-                        {
-                            var loc = stack.Pop();
-                            CheckIndex(loc, controlValueTable.Length);
-                            stack.Push(FloatToF26Dot6(controlValueTable[loc]));
-                        }
-                        break;
+                    case OpCode.RCVT: stack.Push(FloatToF26Dot6(ReadCvt())); break;
 
                     // ==== STATE VECTORS ====
                     case OpCode.SVTCA0:
@@ -369,13 +365,123 @@ namespace SharpFont {
                         }
                         break;
                     case OpCode.MD0:
+                        {
+                            var p1 = zp1.GetCurrent(stack.Pop());
+                            var p2 = zp0.GetCurrent(stack.Pop());
+                            var distance = Vector2.Dot(p2 - p1, state.Projection);
+                            stack.Push(FloatToF26Dot6(distance));
+                        }
+                        break;
                     case OpCode.MD1:
                         {
-                            // TODO
+                            var p1 = zp1.GetOriginal(stack.Pop());
+                            var p2 = zp0.GetOriginal(stack.Pop());
+                            var distance = Vector2.Dot(p2 - p1, state.DualProjection);
+                            stack.Push(FloatToF26Dot6(distance));
                         }
                         break;
                     case OpCode.MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
                     case OpCode.MPPEM: stack.Push(ppem); break;
+
+                    // ==== POINT MODIFICATION ====
+                    case OpCode.FLIPPT:
+                        {
+                            for (int i = 0; i < state.Loop; i++)
+                                points.Flip(stack.Pop());
+                            state.Loop = 1;
+                        }
+                        break;
+                    case OpCode.FLIPRGON:
+                        {
+                            var end = stack.Pop();
+                            for (int i = stack.Pop(); i <= end; i++)
+                                points.FlipOn(i);
+                        }
+                        break;
+                    case OpCode.FLIPRGOFF:
+                        {
+                            var end = stack.Pop();
+                            for (int i = stack.Pop(); i <= end; i++)
+                                points.FlipOff(i);
+                        }
+                        break;
+                    case OpCode.SHP0:
+                    case OpCode.SHP1:
+                        {
+                            // compute displacement of the reference point
+                            Zone refZone;
+                            int refPoint;
+                            if (opcode == OpCode.SHP0) {
+                                refZone = zp1;
+                                refPoint = state.Rp2;
+                            }
+                            else {
+                                refZone = zp0;
+                                refPoint = state.Rp1;
+                            }
+
+                            var distance = Vector2.Dot(refZone.GetCurrent(refPoint) - refZone.GetOriginal(refPoint), state.Projection);
+                            ShiftPoints(MovePoint(state.Freedom, distance));
+                        }
+                        break;
+                    case OpCode.SHPIX: ShiftPoints(stack.Pop() * state.Freedom); break;
+                    case OpCode.MIAP0:
+                    case OpCode.MIAP1:
+                        {
+                            var distance = ReadCvt();
+                            var pointIndex = stack.Pop();
+
+                            // this instruction is used in the CVT to set up twilight points with original values
+                            if (state.Gep0 == ZoneType.Twilight) {
+                                var original = state.Freedom * distance;
+                                zp0.SetOriginal(pointIndex, original);
+                                zp0.SetCurrent(pointIndex, original);
+                            }
+
+                            // current position of the point along the projection vector
+                            var point = zp0.GetCurrent(pointIndex);
+                            var currentPos = Vector2.Dot(point, state.Projection);
+                            if (opcode == OpCode.MIAP1) {
+                                // only use the CVT if we are above the cut-in point
+                                if (Math.Abs(distance - currentPos) > state.ControlValueCutIn)
+                                    distance = currentPos;
+
+                                distance = Round(distance);
+                            }
+
+                            zp0.SetCurrent(pointIndex, MovePoint(point, distance - currentPos));
+                            state.Rp0 = pointIndex;
+                            state.Rp1 = pointIndex;
+                        }
+                        break;
+                    case OpCode.IP:
+                        {
+                            var originalBase = zp0.GetOriginal(state.Rp1);
+                            var currentBase = zp0.GetCurrent(state.Rp1);
+                            var originalRange = Vector2.Dot(zp1.GetOriginal(state.Rp2) - originalBase, state.DualProjection);
+                            var currentRange = Vector2.Dot(zp1.GetCurrent(state.Rp2) - currentBase, state.Projection);
+
+                            for (int i = 0; i < state.Loop; i++) {
+                                var pointIndex = stack.Pop();
+                                var point = zp2.GetCurrent(pointIndex);
+                                var currentDistance = Vector2.Dot(point - currentBase, state.Projection);
+                                var originalDistance = Vector2.Dot(zp2.GetOriginal(pointIndex) - originalBase, state.DualProjection);
+
+                                var newDistance = 0.0f;
+                                if (originalDistance != 0.0f) {
+                                    // a range of 0.0f is invalid according to the spec (would result in a div by zero)
+                                    if (originalRange == 0.0f)
+                                        newDistance = originalDistance;
+                                    else
+                                        newDistance = originalDistance * currentRange / originalRange;
+                                }
+
+                                zp2.SetCurrent(pointIndex, MovePoint(point, newDistance - currentDistance));
+                            }
+
+                            state.Loop = 1;
+                        }
+                        break;
 
                     // ==== STACK MANAGEMENT ====
                     case OpCode.DUP: stack.Duplicate(); break;
@@ -601,8 +707,8 @@ namespace SharpFont {
                             var selector = stack.Pop();
                             var result = 0;
                             if ((selector & 0x1) != 0) {
-                                // pretend we are MS Rasterizer v38
-                                result = 38;
+                                // pretend we are MS Rasterizer v35
+                                result = 35;
                             }
 
                             // TODO: rotation and stretching
@@ -620,7 +726,11 @@ namespace SharpFont {
                         break;
 
                     default:
-                        throw new InvalidFontException("Unknown opcode in font program.");
+                        if (opcode >= OpCode.MIRP)
+                            MoveIndirectRelative(opcode - OpCode.MIRP);
+                        else
+                            throw new InvalidFontException("Unknown opcode in font program.");
+                        break;
                 }
             }
         }
@@ -659,6 +769,12 @@ namespace SharpFont {
                 throw new InvalidFontException();
         }
 
+        float ReadCvt () {
+            var loc = stack.Pop();
+            CheckIndex(loc, controlValueTable.Length);
+            return controlValueTable[loc];
+        }
+
         void OnVectorsUpdated () {
             fdotp = Vector2.Dot(state.Freedom, state.Projection);
             if (fdotp < Epsilon)
@@ -666,12 +782,12 @@ namespace SharpFont {
         }
 
         void SetFreedomVectorToAxis (int axis) {
-            state.Freedom = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
+            state.Freedom = axis == 0 ? Vector2.UnitY : Vector2.UnitX;
             OnVectorsUpdated();
         }
 
         void SetProjectionVectorToAxis (int axis) {
-            state.Projection = axis == 0 ? Vector2.UnitX : Vector2.UnitY;
+            state.Projection = axis == 0 ? Vector2.UnitY : Vector2.UnitX;
             state.DualProjection = state.Projection;
 
             OnVectorsUpdated();
@@ -774,6 +890,70 @@ namespace SharpFont {
                 stack.Pop();    // ignore the offset
         }
 
+        void MoveIndirectRelative (int flags) {
+            // this instruction tries to make the current distance between a given point
+            // and the reference point rp0 be equivalent to the same distance in the original outline
+            // there are a bunch of flags that control how that distance is measured
+            var cvt = ReadCvt();
+            var pointIndex = stack.Pop();
+
+            if (Math.Abs(cvt - state.SingleWidthValue) < state.SingleWidthCutIn) {
+                if (cvt >= 0)
+                    cvt = state.SingleWidthValue;
+                else
+                    cvt = -state.SingleWidthValue;
+            }
+
+            // if we're looking at the twilight zone we need to prepare the points there
+            var originalReference = zp0.GetOriginal(state.Rp0);
+            if (state.Gep1 == ZoneType.Twilight) {
+                var initialValue = originalReference + state.Freedom * cvt;
+                zp1.SetOriginal(pointIndex, initialValue);
+                zp1.SetCurrent(pointIndex, initialValue);
+            }
+
+            var point = zp1.GetCurrent(pointIndex);
+            var originalDistance = Vector2.Dot(zp1.GetOriginal(pointIndex) - originalReference, state.DualProjection);
+            var currentDistance = Vector2.Dot(point - zp0.GetCurrent(state.Rp0), state.Projection);
+
+            if (state.AutoFlip && Math.Sign(originalDistance) != Math.Sign(cvt))
+                cvt = -cvt;
+
+            // if bit 2 is set, round the distance and look at the cut-in value
+            var distance = cvt;
+            if ((flags & 0x4) != 0) {
+                // only perform cut-in tests when both points are in the same zone
+                if (state.Gep0 == state.Gep1 && Math.Abs(cvt - originalDistance) > state.ControlValueCutIn)
+                    cvt = originalDistance;
+
+                distance = Round(cvt);
+            }
+
+            // if bit 3 is set, constrain to the minimum distance
+            if ((flags & 0x8) != 0) {
+                if (originalDistance >= 0)
+                    distance = Math.Max(distance, state.MinDistance);
+                else
+                    distance = Math.Min(distance, -state.MinDistance);
+            }
+
+            zp1.SetCurrent(pointIndex, MovePoint(point, distance - currentDistance));
+
+            state.Rp1 = state.Rp0;
+            state.Rp2 = pointIndex;
+            if ((flags & 0x10) != 0)
+                state.Rp0 = pointIndex;
+        }
+
+        void ShiftPoints (Vector2 displacement) {
+            for (int i = 0; i < state.Loop; i++) {
+                var pointIndex = stack.Pop();
+                var point = zp2.GetCurrent(pointIndex);
+                zp2.SetCurrent(pointIndex, point + displacement);
+            }
+            state.Loop = 1;
+        }
+
         float Round (float value) {
             switch (state.RoundState) {
                 case RoundMode.ToGrid: return (float)Math.Round(value);
@@ -797,7 +977,8 @@ namespace SharpFont {
             }
         }
 
-        static void DebugPrint (OpCode opcode) {
+        List<OpCode> debugList = new List<OpCode>();
+        void DebugPrint (OpCode opcode) {
             switch (opcode) {
                 case OpCode.FDEF:
                 case OpCode.PUSHB1:
@@ -821,10 +1002,11 @@ namespace SharpFont {
                     return;
             }
 
-            Debug.WriteLine(opcode);
+            debugList.Add(opcode);
+            //Debug.WriteLine(opcode);
         }
 
-        Vector2 MovePoint (Vector2 point, float distance) => distance * point / fdotp;
+        Vector2 MovePoint (Vector2 point, float distance) => point + distance * state.Freedom / fdotp;
 
         static float F2Dot14ToFloat (int value) => (short)value / 16384.0f;
         static int FloatToF2Dot14 (float value) => (int)(uint)(short)Math.Round(value * 16384.0f);
@@ -838,18 +1020,35 @@ namespace SharpFont {
         const float Epsilon = 0.000001f;
 
         struct Zone {
-            public Vector2 GetCurrent (int index) {
-                return Vector2.Zero;
+            PointF[] current;
+            PointF[] original;
+            bool isTwilight;
+
+            public Zone (PointF[] points, bool isTwilight) {
+                this.isTwilight = isTwilight;
+
+                original = points;
+                current = (PointF[])points.Clone();
             }
 
-            public Vector2 GetOriginal (int index) {
-                return Vector2.Zero;
-            }
+            public Vector2 GetCurrent (int index) => current[index].P;
+            public Vector2 GetOriginal (int index) => original[index].P;
 
-            public void SetCurrent (int index, Vector2 value) {
-            }
+            public void SetCurrent (int index, Vector2 value) => current[index].P = value;
 
             public void SetOriginal (int index, Vector2 value) {
+                if (!isTwilight)
+                    throw new InvalidOperationException("Can't modify original points that are not in the twilight zone.");
+                original[index].P = value;
+            }
+
+            public void Flip (int index) {
+            }
+
+            public void FlipOn (int index) {
+            }
+
+            public void FlipOff (int index) {
             }
         }
 
@@ -897,6 +1096,16 @@ namespace SharpFont {
             FDEF,
             ENDF,
             RTDG,
+            SHP0 = 0x32,
+            SHP1,
+            SHC0,
+            SHC1,
+            SHZ0,
+            SHZ1,
+            SHPIX,
+            IP,
+            MIAP0 = 0x3E,
+            MIAP1,
             NPUSHB = 0x40,
             NPUSHW,
             WS = 0x42,
@@ -953,6 +1162,9 @@ namespace SharpFont {
             RUTG = 0x7C,
             RDTG,
             SANGW,
+            FLIPPT = 0x80,
+            FLIPRGON,
+            FLIPRGOFF,
             SCANCTRL = 0x85,
             SDPVTL0,
             SDPVTL1,
@@ -977,7 +1189,8 @@ namespace SharpFont {
             PUSHW5,
             PUSHW6,
             PUSHW7,
-            PUSHW8
+            PUSHW8,
+            MIRP = 0xE0
         }
     }
 }
