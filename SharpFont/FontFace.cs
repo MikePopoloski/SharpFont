@@ -210,7 +210,11 @@ namespace SharpFont {
             points.Add(pp3 * scale);
             points.Add(pp4 * scale);
 
-            return new Glyph(renderer, points.ToArray(), contours.ToArray());
+            // hint the glyph's points
+            var pointArray = points.ToArray();
+            interpreter.HintGlyph(pointArray, glyphs[glyphIndex].Instructions);
+
+            return new Glyph(renderer, pointArray, contours.ToArray());
         }
 
         public float GetKerning (CodePoint left, CodePoint right, float pixelSize) {

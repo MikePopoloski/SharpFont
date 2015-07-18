@@ -161,6 +161,14 @@ namespace SharpFont {
                 Execute(cvProgram);
         }
 
+        public void HintGlyph (PointF[] glyphPoints, byte[] instructions) {
+            if (instructions == null || instructions.Length == 0)
+                return;
+
+            points = new Zone(glyphPoints, isTwilight: false);
+            Execute(instructions);
+        }
+
         public void Execute (byte[] instructions) => Execute(instructions, 0, false);
 
         void Execute (byte[] instr, int offset, bool inFunction) {
@@ -498,15 +506,34 @@ namespace SharpFont {
                         {
                             // value is false; jump to the next else block or endif marker
                             // otherwise, we don't have to do anything; we'll keep executing this block
-                            if (!stack.PopBool())
-                                SeekEither(OpCode.ELSE, OpCode.EIF);
+                            if (!stack.PopBool()) {
+                                int indent = 1;
+                                while (indent > 0) {
+                                    opcode = NextOpCode();
+                                    switch (opcode) {
+                                        case OpCode.IF: indent++; break;
+                                        case OpCode.EIF: indent--; break;
+                                        case OpCode.ELSE:
+                                            if (indent == 1)
+                                                indent = 0;
+                                            break;
+                                    }
+                                }
+                            }
                         }
                         break;
                     case OpCode.ELSE:
                         {
                             // assume we hit the true statement of some previous if block
                             // if we had hit false, we would have jumped over this
-                            Seek(OpCode.EIF);
+                            int indent = 1;
+                            while (indent > 0) {
+                                opcode = NextOpCode();
+                                switch (opcode) {
+                                    case OpCode.IF: indent++; break;
+                                    case OpCode.EIF: indent--; break;
+                                }
+                            }
                         }
                         break;
                     case OpCode.EIF: /* nothing to do */ break;
@@ -728,6 +755,38 @@ namespace SharpFont {
                                     // update the CVT
                                     CheckIndex(cvtIndex, controlValueTable.Length);
                                     controlValueTable[cvtIndex] += F26Dot6ToFloat(amount);
+                                }
+                            }
+                        }
+                        break;
+                    case OpCode.DELTAP1:
+                    case OpCode.DELTAP2:
+                    case OpCode.DELTAP3:
+                        {
+                            var last = stack.Pop();
+                            for (int i = 1; i <= last; i++) {
+                                var pointIndex = stack.Pop();
+                                var arg = stack.Pop();
+
+                                // upper 4 bits of the 8-bit arg is the relative ppem
+                                // the opcode specifies the base to add to the ppem
+                                var triggerPpem = (arg >> 4) & 0xF;
+                                triggerPpem += state.DeltaBase;
+                                if (opcode != OpCode.DELTAP1)
+                                    triggerPpem += (opcode - OpCode.DELTAP2 + 1) * 16;
+
+                                // if the current ppem matches the trigger, apply the exception
+                                if (ppem == triggerPpem) {
+                                    // the lower 4 bits of the arg is the amount to shift
+                                    // it's encoded such that 0 isn't an allowable value (who wants to shift by 0 anyway?)
+                                    var amount = (arg & 0xF) - 8;
+                                    if (amount >= 0)
+                                        amount++;
+                                    amount *= 1 << (6 - state.DeltaShift);
+
+                                    // move the point
+                                    var point = zp0.GetCurrent(pointIndex);
+                                    zp0.SetCurrent(pointIndex, MovePoint(point, F26Dot6ToFloat(amount)));
                                 }
                             }
                         }
