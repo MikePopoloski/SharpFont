@@ -152,7 +152,7 @@ namespace SharpFont {
                 // the fpgm table optionally contains a program to run at initialization time
                 var fpgm = SfntTables.ReadProgram(reader, tables, FourCC.Fpgm);
                 if (fpgm != null)
-                    interpreter.Execute(fpgm);
+                    interpreter.InitializeFunctionDefs(fpgm);
             }
         }
 
