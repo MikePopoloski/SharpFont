@@ -700,6 +700,39 @@ namespace SharpFont {
                     case OpCode.NROUND2:
                     case OpCode.NROUND3: break;
 
+                    // ==== DELTA EXCEPTIONS ====
+                    case OpCode.DELTAC1:
+                    case OpCode.DELTAC2:
+                    case OpCode.DELTAC3:
+                        {
+                            var last = stack.Pop();
+                            for (int i = 1; i <= last; i++) {
+                                var cvtIndex = stack.Pop();
+                                var arg = stack.Pop();
+
+                                // upper 4 bits of the 8-bit arg is the relative ppem
+                                // the opcode specifies the base to add to the ppem
+                                var triggerPpem = (arg >> 4) & 0xF;
+                                triggerPpem += (opcode - OpCode.DELTAC1) * 16;
+                                triggerPpem += state.DeltaBase;
+
+                                // if the current ppem matches the trigger, apply the exception
+                                if (ppem == triggerPpem) {
+                                    // the lower 4 bits of the arg is the amount to shift
+                                    // it's encoded such that 0 isn't an allowable value (who wants to shift by 0 anyway?)
+                                    var amount = (arg & 0xF) - 8;
+                                    if (amount >= 0)
+                                        amount++;
+                                    amount *= 1 << (6 - state.DeltaShift);
+
+                                    // update the CVT
+                                    CheckIndex(cvtIndex, controlValueTable.Length);
+                                    controlValueTable[cvtIndex] += F26Dot6ToFloat(amount);
+                                }
+                            }
+                        }
+                        break;
+
                     // ==== MISCELLANEOUS ====
                     case OpCode.DEBUG: stack.Pop(); break;
                     case OpCode.GETINFO:
@@ -1078,13 +1111,13 @@ namespace SharpFont {
             SLOOP,
             RTG,
             RTHG,
-            SMD = 0x1A,
+            SMD,
             ELSE,
             JMPR,
             SCVTCI,
             SSWCI,
             SSW,
-            DUP = 0x20,
+            DUP,
             POP,
             CLEAR,
             SWAP,
@@ -1108,7 +1141,7 @@ namespace SharpFont {
             MIAP1,
             NPUSHB = 0x40,
             NPUSHW,
-            WS = 0x42,
+            WS,
             RS,
             WCVTP,
             RCVT,
@@ -1122,7 +1155,7 @@ namespace SharpFont {
             FLIPON,
             FLIPOFF,
             DEBUG,
-            LT = 0x50,
+            LT,
             LTEQ,
             GT,
             GTEQ,
@@ -1135,9 +1168,10 @@ namespace SharpFont {
             AND,
             OR,
             NOT,
-            SDB = 0x5E,
+            DELTAP1,
+            SDB,
             SDS,
-            ADD = 0x60,
+            ADD,
             SUB,
             DIV,
             MUL,
@@ -1145,7 +1179,7 @@ namespace SharpFont {
             NEG,
             FLOOR,
             CEILING,
-            ROUND0 = 0x68,
+            ROUND0,
             ROUND1,
             ROUND2,
             ROUND3,
@@ -1153,12 +1187,17 @@ namespace SharpFont {
             NROUND1,
             NROUND2,
             NROUND3,
-            WCVTF = 0x70,
-            SROUND = 0x76,
+            WCVTF,
+            DELTAP2,
+            DELTAP3,
+            DELTAC1,
+            DELTAC2,
+            DELTAC3,
+            SROUND,
             S45ROUND,
             JROT,
             JROF,
-            ROFF = 0x7A,
+            ROFF,
             RUTG = 0x7C,
             RDTG,
             SANGW,
@@ -1182,7 +1221,7 @@ namespace SharpFont {
             PUSHB6,
             PUSHB7,
             PUSHB8,
-            PUSHW1 = 0xB8,
+            PUSHW1,
             PUSHW2,
             PUSHW3,
             PUSHW4,
