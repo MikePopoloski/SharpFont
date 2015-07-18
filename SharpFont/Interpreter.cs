@@ -60,7 +60,7 @@ namespace SharpFont {
             s = new int[maxStack];
         }
 
-        public int Peek () => Peek(count - 1);
+        public int Peek () => Peek(0);
         public bool PopBool () => Pop() != 0;
         public void Push (bool value) => Push(value ? 1 : 0);
 
@@ -70,11 +70,11 @@ namespace SharpFont {
         public void Copy () => Copy(Pop() - 1);
         public void Copy (int index) => Push(Peek(index));
         public void Move () => Move(Pop() - 1);
-        public void Roll () => Move(count - 3);
+        public void Roll () => Move(2);
 
         public void Move (int index) {
             var val = Peek(index);
-            for (int i = index; i < count - 1; i++)
+            for (int i = count - index - 1; i < count - 1; i++)
                 s[i] = s[i + 1];
             s[count - 1] = val;
         }
@@ -103,7 +103,7 @@ namespace SharpFont {
         public int Peek (int index) {
             if (index < 0 || index >= count)
                 throw new InvalidFontException();
-            return s[index];
+            return s[count - index - 1];
         }
     }
 
@@ -498,7 +498,7 @@ namespace SharpFont {
                         {
                             // value is false; jump to the next else block or endif marker
                             // otherwise, we don't have to do anything; we'll keep executing this block
-                            if (stack.PopBool())
+                            if (!stack.PopBool())
                                 SeekEither(OpCode.ELSE, OpCode.EIF);
                         }
                         break;
