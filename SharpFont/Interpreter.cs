@@ -120,6 +120,7 @@ namespace SharpFont {
         InstructionStream[] functions;
         float[] controlValueTable;
         int[] storage;
+        int[] contours;
         float scale;
         int ppem;
         int callStackSize;
@@ -160,7 +161,7 @@ namespace SharpFont {
                 Execute(new InstructionStream(cvProgram), false, false);
         }
 
-        public void HintGlyph (PointF[] glyphPoints, byte[] instructions) {
+        public void HintGlyph (PointF[] glyphPoints, int[] contours, byte[] instructions) {
             if (instructions == null || instructions.Length == 0)
                 return;
 
@@ -180,8 +181,15 @@ namespace SharpFont {
                 state.Loop = 1;
             }
 
+            // TODO: track graphics state after CVT program and reset on each HintGlyph call
+            // TODO: composite glyphs
+            // TODO: round the phantom points?
+
+            this.contours = contours;
             zp0 = zp1 = zp2 = points = new Zone(glyphPoints, isTwilight: false);
             stack.Clear();
+
+            debugList.Clear();
 
             Execute(new InstructionStream(instructions), false, false);
         }
@@ -505,6 +513,96 @@ namespace SharpFont {
                             state.Loop = 1;
                         }
                         break;
+                    case OpCode.UTP:
+                        {
+                            var pointIndex = stack.Pop();
+                            var touch = zp0.TouchState[pointIndex];
+                            if (state.Freedom.X != 0)
+                                touch &= ~TouchState.X;
+                            if (state.Freedom.Y != 0)
+                                touch &= ~TouchState.Y;
+
+                            zp0.TouchState[pointIndex] = touch;
+                        }
+                        break;
+                    case OpCode.IUP0:
+                    case OpCode.IUP1:
+                        unsafe
+                        {
+                            // bail if no contours (empty outline)
+                            if (contours.Length == 0)
+                                break;
+
+                            fixed (PointF* currentPtr = points.Current) fixed (PointF* originalPtr = points.Original)
+                            {
+                                // opcode controls whether we care about X or Y direction
+                                // do some pointer trickery so we can operate on the
+                                // points in a direction-agnostic manner
+                                TouchState touchMask;
+                                byte* current;
+                                byte* original;
+                                if (opcode == OpCode.IUP0) {
+                                    touchMask = TouchState.Y;
+                                    current = (byte*)&currentPtr->P.Y;
+                                    original = (byte*)&currentPtr->P.Y;
+                                }
+                                else {
+                                    touchMask = TouchState.X;
+                                    current = (byte*)&currentPtr->P.X;
+                                    original = (byte*)&currentPtr->P.X;
+                                }
+
+                                var point = 0;
+                                for (int i = 0; i < contours.Length; i++) {
+                                    var endPoint = contours[i];
+                                    var firstPoint = point;
+                                    var firstTouched = -1;
+                                    var lastTouched = -1;
+
+                                    for (; point <= endPoint; point++) {
+                                        // check whether this point has been touched
+                                        if ((points.TouchState[point] & touchMask) != 0) {
+                                            // if this is the first touched point in the contour, note it and continue
+                                            if (firstTouched < 0) {
+                                                firstTouched = point;
+                                                lastTouched = point;
+                                                continue;
+                                            }
+
+                                            // otherwise, interpolate all untouched points
+                                            // between this point and our last touched point
+                                            InterpolatePoints(current, original, lastTouched + 1, point - 1, lastTouched, point);
+                                            lastTouched = point;
+                                        }
+                                    }
+
+                                    // check if we had any touched points at all in this contour
+                                    if (firstTouched >= 0) {
+                                        // there are two cases left to handle:
+                                        // 1. there was only one touched point in the whole contour, in
+                                        //    which case we want to shift everything relative to that one
+                                        // 2. several touched points, in which case handle the gap from the
+                                        //    beginning to the first touched point and the gap from the last
+                                        //    touched point to the end of the contour
+                                        if (lastTouched == firstTouched) {
+                                            var delta = *GetPoint(current, lastTouched) - *GetPoint(original, lastTouched);
+                                            if (delta != 0.0f) {
+                                                for (int j = firstPoint; j < lastTouched; j++)
+                                                    *GetPoint(current, j) += delta;
+                                                for (int j = lastTouched + 1; j <= endPoint; j++)
+                                                    *GetPoint(current, j) += delta;
+                                            }
+                                        }
+                                        else {
+                                            InterpolatePoints(current, original, lastTouched + 1, endPoint, lastTouched, firstTouched);
+                                            if (firstTouched > 0)
+                                                InterpolatePoints(current, original, firstPoint, firstTouched - 1, lastTouched, firstTouched);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
 
                     // ==== STACK MANAGEMENT ====
                     case OpCode.DUP: stack.Duplicate(); break;
@@ -808,6 +906,8 @@ namespace SharpFont {
                     default:
                         if (opcode >= OpCode.MIRP)
                             MoveIndirectRelative(opcode - OpCode.MIRP);
+                        else if (opcode >= OpCode.MDRP)
+                            MoveDirectRelative(opcode - OpCode.MDRP);
                         else
                             throw new InvalidFontException("Unknown opcode in font program.");
                         break;
@@ -982,6 +1082,10 @@ namespace SharpFont {
                 state.Rp0 = pointIndex;
         }
 
+        void MoveDirectRelative (int flags) {
+            // TODO
+        }
+
         void ShiftPoints (Vector2 displacement) {
             // TODO: set touch flag
             for (int i = 0; i < state.Loop; i++) {
@@ -1058,11 +1162,54 @@ namespace SharpFont {
         float Project (Vector2 point) => Vector2.Dot(point, state.Projection);
         float DualProject (Vector2 point) => Vector2.Dot(point, state.DualProjection);
 
+        static unsafe void InterpolatePoints (byte* current, byte* original, int start, int end, int ref1, int ref2) {
+            if (start > end)
+                return;
+
+            // figure out how much the two reference points
+            // have been shifted from their original positions
+            float delta1, delta2;
+            var lower = *GetPoint(original, ref1);
+            var upper = *GetPoint(original, ref2);
+            if (lower > upper) {
+                var temp = lower;
+                lower = upper;
+                upper = temp;
+
+                delta1 = *GetPoint(current, ref2) - lower;
+                delta2 = *GetPoint(current, ref1) - upper;
+            }
+            else {
+                delta1 = *GetPoint(current, ref1) - lower;
+                delta2 = *GetPoint(current, ref2) - upper;
+            }
+
+            var lowerCurrent = delta1 + lower;
+            var upperCurrent = delta2 + upper;
+            var scale = (upperCurrent - lowerCurrent) / (upper - lower);
+
+            for (int i = start; i <= end; i++) {
+                // three cases: if it's to the left of the lower reference point or to
+                // the right of the upper reference point, do a shift based on that ref point.
+                // otherwise, interpolate between the two of them
+                var pos = *GetPoint(original, i);
+                if (pos <= lower)
+                    pos += delta1;
+                else if (pos >= upper)
+                    pos += delta2;
+                else
+                    pos = lowerCurrent + (pos - lower) * scale;
+                *GetPoint(current, i) = pos;
+            }
+        }
+
         static float F2Dot14ToFloat (int value) => (short)value / 16384.0f;
         static int FloatToF2Dot14 (float value) => (int)(uint)(short)Math.Round(value * 16384.0f);
 
         public static float F26Dot6ToFloat (int value) => value / 64.0f;
         public static int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
+
+        unsafe static float* GetPoint (byte* data, int index) => (float*)(data + sizeof(PointF) * index);
 
         static readonly float Sqrt2Over2 = (float)(Math.Sqrt(2) / 2);
 
