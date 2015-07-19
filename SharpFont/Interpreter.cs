@@ -475,6 +475,27 @@ namespace SharpFont {
                             state.Rp1 = pointIndex;
                         }
                         break;
+                    case OpCode.MSIRP0:
+                    case OpCode.MSIRP1:
+                        {
+                            var targetDistance = stack.PopFloat();
+                            var pointIndex = stack.Pop();
+
+                            // if we're operating on the twilight zone, initialize the points
+                            if (zp1.IsTwilight) {
+                                zp1.Original[pointIndex].P = zp0.Original[state.Rp0].P + targetDistance * state.Freedom / fdotp;
+                                zp1.Current[pointIndex].P = zp1.Original[pointIndex].P;
+                            }
+
+                            var currentDistance = Project(zp1.GetCurrent(pointIndex) - zp0.GetCurrent(state.Rp0));
+                            MovePoint(zp1, pointIndex, targetDistance - currentDistance);
+
+                            state.Rp1 = state.Rp0;
+                            state.Rp2 = pointIndex;
+                            if (opcode == OpCode.MSIRP1)
+                                state.Rp0 = pointIndex;
+                        }
+                        break;
                     case OpCode.IP:
                         {
                             var originalBase = zp0.GetOriginal(state.Rp1);
@@ -1075,6 +1096,7 @@ namespace SharpFont {
                     distance = Math.Min(distance, -state.MinDistance);
             }
 
+            // move the point
             MovePoint(zp1, pointIndex, distance - currentDistance);
             state.Rp1 = state.Rp0;
             state.Rp2 = pointIndex;
@@ -1083,7 +1105,39 @@ namespace SharpFont {
         }
 
         void MoveDirectRelative (int flags) {
-            // TODO
+            // determine the original distance between the two reference points
+            var pointIndex = stack.Pop();
+            var p1 = zp0.GetOriginal(state.Rp0);
+            var p2 = zp1.GetOriginal(pointIndex);
+            var originalDistance = DualProject(p2 - p1);
+
+            // single width cutin test
+            if (Math.Abs(originalDistance - state.SingleWidthValue) < state.SingleWidthCutIn) {
+                if (originalDistance >= 0)
+                    originalDistance = state.SingleWidthValue;
+                else
+                    originalDistance = -state.SingleWidthValue;
+            }
+
+            // if bit 2 is set, perform rounding
+            var distance = originalDistance;
+            if ((flags & 0x4) != 0)
+                distance = Round(distance);
+
+            // if bit 3 is set, constrain to the minimum distance
+            if ((flags & 0x8) != 0) {
+                if (originalDistance >= 0)
+                    distance = Math.Max(distance, state.MinDistance);
+                else
+                    distance = Math.Min(distance, -state.MinDistance);
+            }
+
+            // move the point
+            MovePoint(zp1, pointIndex, distance - originalDistance);
+            state.Rp1 = state.Rp0;
+            state.Rp2 = pointIndex;
+            if ((flags & 0x10) != 0)
+                state.Rp0 = pointIndex;
         }
 
         void ShiftPoints (Vector2 displacement) {
