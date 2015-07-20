@@ -31,7 +31,7 @@ namespace SharpFont {
             ControlValueCutIn = 17.0f / 16.0f;
             SingleWidthCutIn = 0.0f;
             SingleWidthValue = 0.0f;
-            DeltaBase = 0;
+            DeltaBase = 9;
             DeltaShift = 3;
             Loop = 1;
             Rp0 = Rp1 = Rp2 = 0;
@@ -367,16 +367,16 @@ namespace SharpFont {
                         break;
                     case OpCode.MD0:
                         {
-                            var p1 = zp1.GetCurrent(stack.Pop());
-                            var p2 = zp0.GetCurrent(stack.Pop());
-                            stack.Push(Project(p2 - p1));
+                            var p1 = zp1.GetOriginal(stack.Pop());
+                            var p2 = zp0.GetOriginal(stack.Pop());
+                            stack.Push(DualProject(p2 - p1));
                         }
                         break;
                     case OpCode.MD1:
                         {
-                            var p1 = zp1.GetOriginal(stack.Pop());
-                            var p2 = zp0.GetOriginal(stack.Pop());
-                            stack.Push(DualProject(p2 - p1));
+                            var p1 = zp1.GetCurrent(stack.Pop());
+                            var p2 = zp0.GetCurrent(stack.Pop());
+                            stack.Push(Project(p2 - p1));
                         }
                         break;
                     case OpCode.MPS: // MPS should return point size, but we assume DPI so it's the same as pixel size
@@ -430,7 +430,7 @@ namespace SharpFont {
                             ShiftPoints(displacement);
                         }
                         break;
-                    case OpCode.SHPIX: ShiftPoints(stack.Pop() * state.Freedom); break; // TODO: multiply is wrong here
+                    case OpCode.SHPIX: ShiftPoints(stack.PopFloat() * state.Freedom); break;
                     case OpCode.MIAP0:
                     case OpCode.MIAP1:
                         {
@@ -565,12 +565,12 @@ namespace SharpFont {
                                 if (opcode == OpCode.IUP0) {
                                     touchMask = TouchState.Y;
                                     current = (byte*)&currentPtr->P.Y;
-                                    original = (byte*)&currentPtr->P.Y;
+                                    original = (byte*)&originalPtr->P.Y;
                                 }
                                 else {
                                     touchMask = TouchState.X;
                                     current = (byte*)&currentPtr->P.X;
-                                    original = (byte*)&currentPtr->P.X;
+                                    original = (byte*)&originalPtr->P.X;
                                 }
 
                                 var point = 0;
@@ -685,43 +685,43 @@ namespace SharpFont {
                     // ==== LOGICAL OPS ====
                     case OpCode.LT:
                         {
-                            var b = (uint)stack.Pop();
-                            var a = (uint)stack.Pop();
+                            var b = stack.Pop();
+                            var a = stack.Pop();
                             stack.Push(a < b);
                         }
                         break;
                     case OpCode.LTEQ:
                         {
-                            var b = (uint)stack.Pop();
-                            var a = (uint)stack.Pop();
+                            var b = stack.Pop();
+                            var a = stack.Pop();
                             stack.Push(a <= b);
                         }
                         break;
                     case OpCode.GT:
                         {
-                            var b = (uint)stack.Pop();
-                            var a = (uint)stack.Pop();
+                            var b = stack.Pop();
+                            var a = stack.Pop();
                             stack.Push(a > b);
                         }
                         break;
                     case OpCode.GTEQ:
                         {
-                            var b = (uint)stack.Pop();
-                            var a = (uint)stack.Pop();
+                            var b = stack.Pop();
+                            var a = stack.Pop();
                             stack.Push(a >= b);
                         }
                         break;
                     case OpCode.EQ:
                         {
-                            var b = (uint)stack.Pop();
-                            var a = (uint)stack.Pop();
+                            var b = stack.Pop();
+                            var a = stack.Pop();
                             stack.Push(a == b);
                         }
                         break;
                     case OpCode.NEQ:
                         {
-                            var b = (uint)stack.Pop();
-                            var a = (uint)stack.Pop();
+                            var b = stack.Pop();
+                            var a = stack.Pop();
                             stack.Push(a != b);
                         }
                         break;
@@ -1133,6 +1133,7 @@ namespace SharpFont {
             }
 
             // move the point
+            originalDistance = Project(zp1.GetCurrent(pointIndex) - zp0.GetCurrent(state.Rp0));
             MovePoint(zp1, pointIndex, distance - originalDistance);
             state.Rp1 = state.Rp0;
             state.Rp2 = pointIndex;
@@ -1141,10 +1142,16 @@ namespace SharpFont {
         }
 
         void ShiftPoints (Vector2 displacement) {
-            // TODO: set touch flag
+            var touch = TouchState.None;
+            if (state.Freedom.X != 0)
+                touch = TouchState.X;
+            if (state.Freedom.Y != 0)
+                touch |= TouchState.Y;
+
             for (int i = 0; i < state.Loop; i++) {
                 var pointIndex = stack.Pop();
                 zp2.Current[pointIndex].P += displacement;
+                zp2.TouchState[pointIndex] |= touch;
             }
             state.Loop = 1;
         }
@@ -1158,27 +1165,34 @@ namespace SharpFont {
                 touch |= TouchState.Y;
 
             zone.Current[index].P = point;
-            zone.TouchState[index] = touch;
+            zone.TouchState[index] |= touch;
         }
 
         float Round (float value) {
             switch (state.RoundState) {
-                case RoundMode.ToGrid: return (float)Math.Round(value);
-                case RoundMode.ToHalfGrid: return (float)Math.Floor(value) + Math.Sign(value) * 0.5f;
-                case RoundMode.ToDoubleGrid: return (float)(Math.Round(value * 2, MidpointRounding.AwayFromZero) / 2);
-                case RoundMode.DownToGrid: return (float)Math.Floor(value);
-                case RoundMode.UpToGrid: return (float)Math.Ceiling(value);
+                case RoundMode.ToGrid: return value >= 0 ? (float)Math.Round(value) : -(float)Math.Round(-value);
+                case RoundMode.ToHalfGrid: return value >= 0 ? (float)Math.Floor(value) + 0.5f : -((float)Math.Floor(-value) + 0.5f);
+                case RoundMode.ToDoubleGrid: return value >= 0 ? (float)(Math.Round(value * 2, MidpointRounding.AwayFromZero) / 2) : -(float)(Math.Round(-value * 2, MidpointRounding.AwayFromZero) / 2);
+                case RoundMode.DownToGrid: return value >= 0 ? (float)Math.Floor(value) : -(float)Math.Floor(-value);
+                case RoundMode.UpToGrid: return value >= 0 ? (float)Math.Ceiling(value) : -(float)Math.Ceiling(-value);
                 case RoundMode.Super:
                 case RoundMode.Super45:
-                    var sign = Math.Sign(value);
-                    value = value - roundPhase + roundThreshold;
-                    value = (float)Math.Truncate(value / roundPeriod) * roundPeriod;
-                    value += roundPhase;
-                    if (sign < 0 && value > 0)
-                        value = -roundPhase;
-                    else if (sign >= 0 && value < 0)
-                        value = roundPhase;
-                    return value;
+                    float result;
+                    if (value >= 0) {
+                        result = value - roundPhase + roundThreshold;
+                        result = (float)Math.Truncate(result / roundPeriod) * roundPeriod;
+                        result += roundPhase;
+                        if (result < 0)
+                            result = roundPhase;
+                    }
+                    else {
+                        result = -value - roundPhase + roundThreshold;
+                        result = -(float)Math.Truncate(result / roundPeriod) * roundPeriod;
+                        result -= roundPhase;
+                        if (result > 0)
+                            result = -roundPhase;
+                    }
+                    return result;
 
                 default: return value;
             }
@@ -1288,7 +1302,7 @@ namespace SharpFont {
             }
 
             public OpCode NextOpCode () => (OpCode)NextByte();
-            public int NextWord () => NextByte() << 8 | NextByte();
+            public int NextWord () => (short)(ushort)(NextByte() << 8 | NextByte());
             public void Jump (int offset) => ip += offset;
         }
 
@@ -1300,8 +1314,8 @@ namespace SharpFont {
 
             public Zone (PointF[] points, bool isTwilight) {
                 IsTwilight = isTwilight;
-                Original = points;
-                Current = (PointF[])points.Clone();
+                Current = points;
+                Original = (PointF[])points.Clone();
                 TouchState = new TouchState[points.Length];
             }
 
@@ -1309,6 +1323,7 @@ namespace SharpFont {
             public Vector2 GetOriginal (int index) => Original[index].P;
         }
 
+        [Flags]
         enum TouchState {
             None = 0,
             X = 0x1,

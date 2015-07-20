@@ -32,8 +32,6 @@ namespace GpuExample {
             var buffer = new TextBuffer(128);
             buffer.Append(atlas, typeface, "Hello, World! (¼)");
 
-            
-
             Bgfx.SetViewTransform(0, Matrix4x4.Identity, Matrix4x4.CreateOrthographicOffCenter(0, 1280, 720, 0, -1.0f, 1.0f));
 
             // main loop

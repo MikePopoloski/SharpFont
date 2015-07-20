@@ -40,8 +40,11 @@ namespace GpuExample {
 
             foreach (var c in text) {
                 var glyph = typeface.GetGlyph(c, pixelSize);
-                if (glyph.RenderWidth == 0 || glyph.RenderHeight == 0)
-                    throw new NotSupportedException();
+                if (glyph.RenderWidth == 0 || glyph.RenderHeight == 0) {
+                    pen.X += glyph.HorizontalMetrics.Advance;
+                    previous = c;
+                    continue;
+                }
 
                 var memory = new MemoryBlock(glyph.RenderWidth * glyph.RenderHeight);
                 var surface = new Surface {
@@ -77,7 +80,7 @@ namespace GpuExample {
                 *mem++ = new PosColorTexture(origin + new Vector2(glyph.RenderWidth, 0), new Vector2(region.X + region.Z, region.Y), unchecked((int)0xff000000));
                 *mem++ = new PosColorTexture(origin, new Vector2(region.X, region.Y), unchecked((int)0xff000000));
 
-                pen.X += metrics.Advance;
+                pen.X += (float)Math.Round(metrics.Advance);
                 count++;
                 previous = c;
             }

@@ -26,7 +26,8 @@ namespace SharpFont {
             // find the bounding box
             var min = new Vector2(float.MaxValue, float.MaxValue);
             var max = new Vector2(float.MinValue, float.MinValue);
-            for (int i = 0; i < points.Length; i++) {
+            var pointCount = points.Length - 4;
+            for (int i = 0; i < pointCount; i++) {
                 min = Vector2.Min(min, points[i].P);
                 max = Vector2.Max(max, points[i].P);
             }
@@ -44,13 +45,14 @@ namespace SharpFont {
 
             // translate the points so that 0,0 is at the bottom left corner
             var offset = new Vector2(-shiftX, -shiftY);
-            var pointCount = points.Length;
             for (int i = 0; i < pointCount; i++)
                 points[i] = points[i].Offset(offset);
 
+            // TODO: figure out whether we want rounded bearings
             HorizontalMetrics = new GlyphMetrics {
-                Bearing = new Vector2(min.X, max.Y),
-                Advance = points[pointCount - 3].P.X - points[pointCount - 4].P.X
+                Bearing = new Vector2(shiftX, (int)Math.Ceiling(max.Y)),
+                //Bearing = new Vector2(min.X, max.Y),
+                Advance = points[pointCount + 1].P.X - points[pointCount].P.X
             };
             
             // TODO: vertical metrics
