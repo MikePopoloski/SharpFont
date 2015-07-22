@@ -215,7 +215,7 @@ namespace SharpFont {
             var contourArray = contours.ToArray();
             interpreter.HintGlyph(pointArray, contourArray, glyphs[glyphIndex].Instructions);
 
-            return new Glyph(renderer, pointArray, contourArray);
+            return new Glyph(renderer, pointArray, contourArray, horizontal.Advance * scale);
         }
 
         public float GetKerning (CodePoint left, CodePoint right, float pixelSize) {

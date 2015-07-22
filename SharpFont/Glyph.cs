@@ -18,7 +18,7 @@ namespace SharpFont {
         public readonly GlyphMetrics HorizontalMetrics;
         public readonly GlyphMetrics VerticalMetrics;
 
-        internal Glyph (Renderer renderer, PointF[] points, int[] contours) {
+        internal Glyph (Renderer renderer, PointF[] points, int[] contours, float linearHorizontalAdvance) {
             this.renderer = renderer;
             this.points = points;
             this.contours = contours;
@@ -50,9 +50,10 @@ namespace SharpFont {
 
             // TODO: figure out whether we want rounded bearings
             HorizontalMetrics = new GlyphMetrics {
-                Bearing = new Vector2(shiftX, (int)Math.Ceiling(max.Y)),
-                //Bearing = new Vector2(min.X, max.Y),
-                Advance = points[pointCount + 1].P.X - points[pointCount].P.X
+                //Bearing = new Vector2(shiftX, (int)Math.Ceiling(max.Y)),
+                Bearing = new Vector2(min.X, max.Y),
+                Advance = points[pointCount + 1].P.X - points[pointCount].P.X,
+                LinearAdvance = linearHorizontalAdvance
             };
             
             // TODO: vertical metrics
