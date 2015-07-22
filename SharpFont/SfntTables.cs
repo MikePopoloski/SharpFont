@@ -493,19 +493,19 @@ namespace SharpFont {
                 // transform components are in 2.14 fixed point format
                 var transform = Matrix3x2.Identity;
                 if ((flags & CompositeGlyphFlags.HaveScale) != 0) {
-                    var scale = (float)(F2Dot14)reader.ReadInt16BE();
+                    var scale = reader.ReadInt16BE() / F2Dot14ToFloat;
                     transform.M11 = scale;
                     transform.M22 = scale;
                 }
                 else if ((flags & CompositeGlyphFlags.HaveXYScale) != 0) {
-                    transform.M11 = (float)(F2Dot14)reader.ReadInt16BE();
-                    transform.M22 = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M11 = reader.ReadInt16BE() / F2Dot14ToFloat;
+                    transform.M22 = reader.ReadInt16BE() / F2Dot14ToFloat;
                 }
                 else if ((flags & CompositeGlyphFlags.HaveTransform) != 0) {
-                    transform.M11 = (float)(F2Dot14)reader.ReadInt16BE();
-                    transform.M12 = (float)(F2Dot14)reader.ReadInt16BE();
-                    transform.M21 = (float)(F2Dot14)reader.ReadInt16BE();
-                    transform.M22 = (float)(F2Dot14)reader.ReadInt16BE();
+                    transform.M11 = reader.ReadInt16BE() / F2Dot14ToFloat;
+                    transform.M12 = reader.ReadInt16BE() / F2Dot14ToFloat;
+                    transform.M21 = reader.ReadInt16BE() / F2Dot14ToFloat;
+                    transform.M22 = reader.ReadInt16BE() / F2Dot14ToFloat;
                 }
 
                 subglyph.Transform = transform;
@@ -543,6 +543,7 @@ namespace SharpFont {
         const int MaxTwilightPoints = short.MaxValue;
         const int MaxFunctionDefs = 4096;
         const int MaxStorageLocations = 16384;
+        const float F2Dot14ToFloat = 16384.0f;
 
         [Flags]
         enum SimpleGlyphFlags {

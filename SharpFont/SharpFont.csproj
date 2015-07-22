@@ -43,7 +43,6 @@
   <ItemGroup>
     <Compile Include="CharacterMap.cs" />
     <Compile Include="DataReader.cs" />
-    <Compile Include="FixedMath.cs" />
     <Compile Include="FontCollection.cs" />
     <Compile Include="Glyph.cs" />
     <Compile Include="Interpreter.cs" />
