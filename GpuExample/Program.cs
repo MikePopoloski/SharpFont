@@ -26,32 +26,27 @@ namespace GpuExample {
 
             var u_texColor = new Uniform("u_texColor", UniformType.Int1);
             var atlas = new TextureAtlas(4096);
-
+            
             //var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
-            var typeface = LoadTypeface("C:/Windows/Fonts/Arial.ttf");
+            var font = FontCollection.SystemFonts.Load("Arial");
             var buffer = new TextBuffer(128);
-            buffer.Append(atlas, typeface, "Hello, World! (¼)");
+            buffer.Append(atlas, font, "Hello, World! (¼)");
 
             Bgfx.SetViewTransform(0, Matrix4x4.Identity, Matrix4x4.CreateOrthographicOffCenter(0, 1280, 720, 0, -1.0f, 1.0f));
 
             // main loop
             while (window.ProcessEvents(ResetFlags.Vsync)) {
                 Bgfx.SetViewRect(0, 0, 0, window.Width, window.Height);
-                
+
                 Bgfx.SetTexture(0, u_texColor, atlas.Texture);
                 Bgfx.SetProgram(fontProgram);
                 buffer.Submit();
-                
+
                 Bgfx.Frame();
             }
 
             // cleanup
             Bgfx.Shutdown();
-        }
-
-        static FontFace LoadTypeface (string fileName) {
-            using (var file = File.OpenRead(fileName))
-                return new FontFace(file);
         }
     }
 
