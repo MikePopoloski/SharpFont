@@ -18,13 +18,6 @@ namespace SharpFont {
         int width, height;              // bounds of the glyph surface, in plain old pixels
         bool cellActive;                // whether the current cell has active data
 
-        public Renderer () {
-            cells = new Cell[1024];
-            scanlines = new int[128];
-            curveLevels = new int[32];
-            bezierArc = new Vector2[curveLevels.Length * 3 + 1];
-        }
-
         public void Start (int width, int height) {
             this.width = width;
             this.height = height;
@@ -34,7 +27,13 @@ namespace SharpFont {
             activeCoverage = 0.0f;
             cellActive = false;
 
-            if (height >= scanlines.Length)
+            if (cells == null) {
+                cells = new Cell[1024];
+                curveLevels = new int[32];
+                bezierArc = new Vector2[curveLevels.Length * 3 + 1];
+                scanlines = new int[height];
+            }
+            else if (height >= scanlines.Length)
                 scanlines = new int[height];
 
             for (int i = 0; i < height; i++)

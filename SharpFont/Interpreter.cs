@@ -1,119 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Numerics;
 
 namespace SharpFont {
-    class GraphicsState {
-        public Vector2 Freedom;
-        public Vector2 DualProjection;
-        public Vector2 Projection;
-        public InstructionControlFlags InstructionControl;
-        public RoundMode RoundState;
-        public float MinDistance;
-        public float ControlValueCutIn;
-        public float SingleWidthCutIn;
-        public float SingleWidthValue;
-        public int DeltaBase;
-        public int DeltaShift;
-        public int Loop;
-        public int Rp0;
-        public int Rp1;
-        public int Rp2;
-        public bool AutoFlip;
-
-        public void Reset () {
-            Freedom = Vector2.UnitX;
-            Projection = Vector2.UnitX;
-            DualProjection = Vector2.UnitX;
-            InstructionControl = InstructionControlFlags.None;
-            RoundState = RoundMode.ToGrid;
-            MinDistance = 1.0f;
-            ControlValueCutIn = 17.0f / 16.0f;
-            SingleWidthCutIn = 0.0f;
-            SingleWidthValue = 0.0f;
-            DeltaBase = 9;
-            DeltaShift = 3;
-            Loop = 1;
-            Rp0 = Rp1 = Rp2 = 0;
-            AutoFlip = true;
-        }
-    }
-
-    enum RoundMode {
-        ToHalfGrid,
-        ToGrid,
-        ToDoubleGrid,
-        DownToGrid,
-        UpToGrid,
-        Off,
-        Super,
-        Super45
-    }
-
-    [Flags]
-    enum InstructionControlFlags {
-        None,
-        InhibitGridFitting = 0x1,
-        UseDefaultGraphicsState = 0x2
-    }
-
-    class ExecutionStack {
-        int[] s;
-        int count;
-
-        public ExecutionStack (int maxStack) {
-            s = new int[maxStack];
-        }
-
-        public int Peek () => Peek(0);
-        public bool PopBool () => Pop() != 0;
-        public float PopFloat () => Interpreter.F26Dot6ToFloat(Pop());
-        public void Push (bool value) => Push(value ? 1 : 0);
-        public void Push (float value) => Push(Interpreter.FloatToF26Dot6(value));
-
-        public void Clear () => count = 0;
-        public void Depth () => Push(count);
-        public void Duplicate () => Push(Peek());
-        public void Copy () => Copy(Pop() - 1);
-        public void Copy (int index) => Push(Peek(index));
-        public void Move () => Move(Pop() - 1);
-        public void Roll () => Move(2);
-
-        public void Move (int index) {
-            var val = Peek(index);
-            for (int i = count - index - 1; i < count - 1; i++)
-                s[i] = s[i + 1];
-            s[count - 1] = val;
-        }
-
-        public void Swap () {
-            if (count < 2)
-                throw new InvalidFontException();
-
-            var tmp = s[count - 1];
-            s[count - 1] = s[count - 2];
-            s[count - 2] = tmp;
-        }
-
-        public void Push (int value) {
-            if (count == s.Length)
-                throw new InvalidFontException();
-            s[count++] = value;
-        }
-
-        public int Pop () {
-            if (count == 0)
-                throw new InvalidFontException();
-            return s[--count];
-        }
-
-        public int Peek (int index) {
-            if (index < 0 || index >= count)
-                throw new InvalidFontException();
-            return s[count - index - 1];
-        }
-    }
-
     class Interpreter {
         GraphicsState state;
         ExecutionStack stack;
@@ -189,8 +77,6 @@ namespace SharpFont {
             zp0 = zp1 = zp2 = points = new Zone(glyphPoints, isTwilight: false);
             stack.Clear();
 
-            debugList.Clear();
-
             Execute(new InstructionStream(instructions), false, false);
         }
 
@@ -198,7 +84,6 @@ namespace SharpFont {
             // dispatch each instruction in the stream
             while (!stream.Done) {
                 var opcode = stream.NextOpCode();
-                DebugPrint(opcode);
                 switch (opcode) {
                     // ==== PUSH INSTRUCTIONS ====
                     case OpCode.NPUSHB:
@@ -1198,35 +1083,6 @@ namespace SharpFont {
             }
         }
 
-        List<OpCode> debugList = new List<OpCode>();
-        void DebugPrint (OpCode opcode) {
-            switch (opcode) {
-                case OpCode.FDEF:
-                case OpCode.PUSHB1:
-                case OpCode.PUSHB2:
-                case OpCode.PUSHB3:
-                case OpCode.PUSHB4:
-                case OpCode.PUSHB5:
-                case OpCode.PUSHB6:
-                case OpCode.PUSHB7:
-                case OpCode.PUSHB8:
-                case OpCode.PUSHW1:
-                case OpCode.PUSHW2:
-                case OpCode.PUSHW3:
-                case OpCode.PUSHW4:
-                case OpCode.PUSHW5:
-                case OpCode.PUSHW6:
-                case OpCode.PUSHW7:
-                case OpCode.PUSHW8:
-                case OpCode.NPUSHB:
-                case OpCode.NPUSHW:
-                    return;
-            }
-
-            debugList.Add(opcode);
-            //Debug.WriteLine(opcode);
-        }
-
         float Project (Vector2 point) => Vector2.Dot(point, state.Projection);
         float DualProject (Vector2 point) => Vector2.Dot(point, state.DualProjection);
 
@@ -1273,9 +1129,8 @@ namespace SharpFont {
 
         static float F2Dot14ToFloat (int value) => (short)value / 16384.0f;
         static int FloatToF2Dot14 (float value) => (int)(uint)(short)Math.Round(value * 16384.0f);
-
-        public static float F26Dot6ToFloat (int value) => value / 64.0f;
-        public static int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
+        static float F26Dot6ToFloat (int value) => value / 64.0f;
+        static int FloatToF26Dot6 (float value) => (int)Math.Round(value * 64.0f);
 
         unsafe static float* GetPoint (byte* data, int index) => (float*)(data + sizeof(PointF) * index);
 
@@ -1306,6 +1161,99 @@ namespace SharpFont {
             public void Jump (int offset) => ip += offset;
         }
 
+        class GraphicsState {
+            public Vector2 Freedom;
+            public Vector2 DualProjection;
+            public Vector2 Projection;
+            public InstructionControlFlags InstructionControl;
+            public RoundMode RoundState;
+            public float MinDistance;
+            public float ControlValueCutIn;
+            public float SingleWidthCutIn;
+            public float SingleWidthValue;
+            public int DeltaBase;
+            public int DeltaShift;
+            public int Loop;
+            public int Rp0;
+            public int Rp1;
+            public int Rp2;
+            public bool AutoFlip;
+
+            public void Reset () {
+                Freedom = Vector2.UnitX;
+                Projection = Vector2.UnitX;
+                DualProjection = Vector2.UnitX;
+                InstructionControl = InstructionControlFlags.None;
+                RoundState = RoundMode.ToGrid;
+                MinDistance = 1.0f;
+                ControlValueCutIn = 17.0f / 16.0f;
+                SingleWidthCutIn = 0.0f;
+                SingleWidthValue = 0.0f;
+                DeltaBase = 9;
+                DeltaShift = 3;
+                Loop = 1;
+                Rp0 = Rp1 = Rp2 = 0;
+                AutoFlip = true;
+            }
+        }
+
+        class ExecutionStack {
+            int[] s;
+            int count;
+
+            public ExecutionStack (int maxStack) {
+                s = new int[maxStack];
+            }
+
+            public int Peek () => Peek(0);
+            public bool PopBool () => Pop() != 0;
+            public float PopFloat () => F26Dot6ToFloat(Pop());
+            public void Push (bool value) => Push(value ? 1 : 0);
+            public void Push (float value) => Push(FloatToF26Dot6(value));
+
+            public void Clear () => count = 0;
+            public void Depth () => Push(count);
+            public void Duplicate () => Push(Peek());
+            public void Copy () => Copy(Pop() - 1);
+            public void Copy (int index) => Push(Peek(index));
+            public void Move () => Move(Pop() - 1);
+            public void Roll () => Move(2);
+
+            public void Move (int index) {
+                var val = Peek(index);
+                for (int i = count - index - 1; i < count - 1; i++)
+                    s[i] = s[i + 1];
+                s[count - 1] = val;
+            }
+
+            public void Swap () {
+                if (count < 2)
+                    throw new InvalidFontException();
+
+                var tmp = s[count - 1];
+                s[count - 1] = s[count - 2];
+                s[count - 2] = tmp;
+            }
+
+            public void Push (int value) {
+                if (count == s.Length)
+                    throw new InvalidFontException();
+                s[count++] = value;
+            }
+
+            public int Pop () {
+                if (count == 0)
+                    throw new InvalidFontException();
+                return s[--count];
+            }
+
+            public int Peek (int index) {
+                if (index < 0 || index >= count)
+                    throw new InvalidFontException();
+                return s[count - index - 1];
+            }
+        }
+
         struct Zone {
             public PointF[] Current;
             public PointF[] Original;
@@ -1321,6 +1269,24 @@ namespace SharpFont {
 
             public Vector2 GetCurrent (int index) => Current[index].P;
             public Vector2 GetOriginal (int index) => Original[index].P;
+        }
+
+        enum RoundMode {
+            ToHalfGrid,
+            ToGrid,
+            ToDoubleGrid,
+            DownToGrid,
+            UpToGrid,
+            Off,
+            Super,
+            Super45
+        }
+
+        [Flags]
+        enum InstructionControlFlags {
+            None,
+            InhibitGridFitting = 0x1,
+            UseDefaultGraphicsState = 0x2
         }
 
         [Flags]

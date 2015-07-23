@@ -1,15 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SharpFont {
-    public class FontCollection {
+    /// <summary>
+    /// Maintains a collection of fonts.
+    /// </summary>
+    public sealed class FontCollection {
         static FontCollection systemFonts;
         readonly Dictionary<string, List<Metadata>> fontTable = new Dictionary<string, List<Metadata>>();
 
+        /// <summary>
+        /// The system font collection.
+        /// </summary>
         public static FontCollection SystemFonts {
             get {
                 if (systemFonts == null)
@@ -18,17 +21,36 @@ namespace SharpFont {
             }
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FontCollection"/> class.
+        /// </summary>
         public FontCollection () {
         }
 
+        /// <summary>
+        /// Adds a font to the collection.
+        /// </summary>
+        /// <param name="stream">A stream pointing to the font file.</param>
         public void AddFontFile (Stream stream) {
             var metadata = LoadMetadata(stream);
             metadata.Stream = stream;
             AddFile(metadata, throwOnError: true);
         }
 
+        /// <summary>
+        /// Adds a font to the collection.
+        /// </summary>
+        /// <param name="fileName">The path to the font file.</param>
         public void AddFontFile (string fileName) => AddFontFile(fileName, throwOnError: true);
 
+        /// <summary>
+        /// Finds a font in the collection that matches the given parameters.
+        /// </summary>
+        /// <param name="family">The font family name.</param>
+        /// <param name="weight">The font weight.</param>
+        /// <param name="stretch">The font stretch setting.</param>
+        /// <param name="style">The font style.</param>
+        /// <returns>The loaded font if it exists in the collection; otherwise, <c>null</c>.</returns>
         public FontFace Load (string family, FontWeight weight = FontWeight.Normal, FontStretch stretch = FontStretch.Normal, FontStyle style = FontStyle.Regular) {
             List<Metadata> sublist;
             if (!fontTable.TryGetValue(family.ToLowerInvariant(), out sublist))
