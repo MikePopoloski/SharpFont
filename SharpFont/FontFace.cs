@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Threading;
 
 namespace SharpFont {
     /// <summary>
@@ -29,6 +30,9 @@ namespace SharpFont {
         readonly int strikeoutPosition;
         readonly int unitsPerEm;
         readonly bool integerPpems;
+
+        static int currentId;
+        internal int Id;    // unique ID for cache lookups
 
         /// <summary>
         /// Indicates whether the font's glyphs share a fixed width.
@@ -207,6 +211,8 @@ namespace SharpFont {
                 if (fpgm != null)
                     interpreter.InitializeFunctionDefs(fpgm);
             }
+
+            Id = Interlocked.Increment(ref currentId);
         }
 
         /// <summary>

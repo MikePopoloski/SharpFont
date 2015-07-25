@@ -27,10 +27,10 @@ namespace GpuExample {
             var u_texColor = new Uniform("u_texColor", UniformType.Int1);
             var atlas = new TextureAtlas(4096);
             
-            //var typeface = LoadTypeface("../../../Fonts/OpenSans-Regular.ttf");
             var font = FontCollection.SystemFonts.Load("Arial");
+            var analyzer = new TextAnalyzer(atlas);
             var buffer = new TextBuffer(128);
-            buffer.Append(atlas, font, "Hello, World! (¼)");
+            buffer.Append(analyzer, font, "Hello, World! (¼)");
 
             Bgfx.SetViewTransform(0, Matrix4x4.Identity, Matrix4x4.CreateOrthographicOffCenter(0, 1280, 720, 0, -1.0f, 1.0f));
 
