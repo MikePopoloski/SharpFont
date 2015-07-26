@@ -267,6 +267,12 @@ namespace SharpFont {
         /// </summary>
         /// <param name="character">The character value.</param>
         public static implicit operator CodePoint (char character) => new CodePoint(character);
+
+        /// <summary>
+        /// Implements an explicit conversion from <see cref="CodePoint"/> to character.
+        /// </summary>
+        /// <param name="codePoint">The codepoint value.</param>
+        public static explicit operator char (CodePoint codePoint) => (char)codePoint.value;
     }
 
     /// <summary>

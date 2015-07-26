@@ -6,6 +6,7 @@ namespace SharpFont {
         GraphicsState state;
         ExecutionStack stack;
         InstructionStream[] functions;
+        InstructionStream[] instructionDefs;
         float[] controlValueTable;
         int[] storage;
         int[] contours;
@@ -19,10 +20,11 @@ namespace SharpFont {
         Zone zp0, zp1, zp2;
         Zone points, twilight;
 
-        public Interpreter (int maxStack, int maxStorage, int maxFunctions, int maxTwilightPoints) {
+        public Interpreter (int maxStack, int maxStorage, int maxFunctions, int maxInstructionDefs, int maxTwilightPoints) {
             stack = new ExecutionStack(maxStack);
             storage = new int[maxStorage];
             functions = new InstructionStream[maxFunctions];
+            instructionDefs = new InstructionStream[maxInstructionDefs > 0 ? 256 : 0];
             state = new GraphicsState();
 
             twilight = new Zone(new PointF[maxTwilightPoints], isTwilight: true);
@@ -77,13 +79,18 @@ namespace SharpFont {
             zp0 = zp1 = zp2 = points = new Zone(glyphPoints, isTwilight: false);
             stack.Clear();
 
+            debugList.Clear();
+
             Execute(new InstructionStream(instructions), false, false);
         }
+
+        System.Collections.Generic.List<OpCode> debugList = new System.Collections.Generic.List<OpCode>();
 
         void Execute (InstructionStream stream, bool inFunction, bool allowFunctionDefs) {
             // dispatch each instruction in the stream
             while (!stream.Done) {
                 var opcode = stream.NextOpCode();
+                debugList.Add(opcode);
                 switch (opcode) {
                     // ==== PUSH INSTRUCTIONS ====
                     case OpCode.NPUSHB:
@@ -298,24 +305,52 @@ namespace SharpFont {
                     case OpCode.SHP0:
                     case OpCode.SHP1:
                         {
-                            // compute displacement of the reference point
-                            Zone refZone;
-                            int refPoint;
-                            if (opcode == OpCode.SHP0) {
-                                refZone = zp1;
-                                refPoint = state.Rp2;
-                            }
-                            else {
-                                refZone = zp0;
-                                refPoint = state.Rp1;
-                            }
-
-                            var distance = Project(refZone.GetCurrent(refPoint) - refZone.GetOriginal(refPoint));
-                            var displacement = distance * state.Freedom / fdotp;
+                            Zone zone;
+                            int point;
+                            var displacement = ComputeDisplacement((int)opcode, out zone, out point);
                             ShiftPoints(displacement);
                         }
                         break;
                     case OpCode.SHPIX: ShiftPoints(stack.PopFloat() * state.Freedom); break;
+                    case OpCode.SHC0:
+                    case OpCode.SHC1:
+                        {
+                            Zone zone;
+                            int point;
+                            var displacement = ComputeDisplacement((int)opcode, out zone, out point);
+                            var touch = GetTouchState();
+                            var contour = stack.Pop();
+                            var start = contour == 0 ? 0 : contours[contour - 1] + 1;
+                            var count = zp2.IsTwilight ? zp2.Current.Length : contours[contour] + 1;
+
+                            for (int i = start; i < count; i++) {
+                                // don't move the reference point
+                                if (zone.Current != zp2.Current || point != i) {
+                                    zp2.Current[i].P += displacement;
+                                    zp2.TouchState[i] |= touch;
+                                }
+                            }
+                        }
+                        break;
+                    case OpCode.SHZ0:
+                    case OpCode.SHZ1:
+                        {
+                            Zone zone;
+                            int point;
+                            var displacement = ComputeDisplacement((int)opcode, out zone, out point);
+                            var count = 0;
+                            if (zp2.IsTwilight)
+                                count = zp2.Current.Length;
+                            else if (contours.Length > 0)
+                                count = contours[contours.Length - 1] + 1;
+
+                            for (int i = 0; i < count; i++) {
+                                // don't move the reference point
+                                if (zone.Current != zp2.Current || point != i)
+                                    zp2.Current[i].P += displacement;
+                            }
+                        }
+                        break;
                     case OpCode.MIAP0:
                     case OpCode.MIAP1:
                         {
@@ -419,18 +454,16 @@ namespace SharpFont {
                             state.Loop = 1;
                         }
                         break;
-                    case OpCode.UTP:
+                    case OpCode.ALIGNPTS:
                         {
-                            var pointIndex = stack.Pop();
-                            var touch = zp0.TouchState[pointIndex];
-                            if (state.Freedom.X != 0)
-                                touch &= ~TouchState.X;
-                            if (state.Freedom.Y != 0)
-                                touch &= ~TouchState.Y;
-
-                            zp0.TouchState[pointIndex] = touch;
+                            var p1 = stack.Pop();
+                            var p2 = stack.Pop();
+                            var distance = Project(zp0.GetCurrent(p2) - zp1.GetCurrent(p1)) / 2;
+                            MovePoint(zp1, p1, distance);
+                            MovePoint(zp0, p2, -distance);
                         }
                         break;
+                    case OpCode.UTP: zp0.TouchState[stack.Pop()] &= ~GetTouchState(); break;
                     case OpCode.IUP0:
                     case OpCode.IUP1:
                         unsafe
@@ -509,6 +542,35 @@ namespace SharpFont {
                             }
                         }
                         break;
+                    case OpCode.ISECT:
+                        {
+                            // move point P to the intersection of lines A and B
+                            var b1 = zp0.GetCurrent(stack.Pop());
+                            var b0 = zp0.GetCurrent(stack.Pop());
+                            var a1 = zp1.GetCurrent(stack.Pop());
+                            var a0 = zp1.GetCurrent(stack.Pop());
+                            var index = stack.Pop();
+
+                            // calculate intersection using determinants: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_points_on_each_line
+                            var da = a0 - a1;
+                            var db = b0 - b1;
+                            var den = (da.X * db.Y) - (da.Y * db.X);
+                            if (Math.Abs(den) <= Epsilon) {
+                                // parallel lines; spec says to put the ppoint "into the middle of the two lines"
+                                zp2.Current[index].P = (a0 + a1 + b0 + b1) / 4;
+                            }
+                            else {
+                                var t = (a0.X * a1.Y) - (a0.Y * a1.X);
+                                var u = (b0.X * b1.Y) - (b0.Y * b1.X);
+                                var p = new Vector2(
+                                    (t * db.X) - (da.X * u),
+                                    (t * db.Y) - (da.Y * u)
+                                );
+                                zp2.Current[index].P = p / den;
+                            }
+                            zp2.TouchState[index] = TouchState.Both;
+                        }
+                        break;
 
                     // ==== STACK MANAGEMENT ====
                     case OpCode.DUP: stack.Duplicate(); break;
@@ -528,7 +590,7 @@ namespace SharpFont {
                             if (!stack.PopBool()) {
                                 int indent = 1;
                                 while (indent > 0) {
-                                    opcode = stream.NextOpCode();
+                                    opcode = SkipNext(ref stream);
                                     switch (opcode) {
                                         case OpCode.IF: indent++; break;
                                         case OpCode.EIF: indent--; break;
@@ -547,7 +609,7 @@ namespace SharpFont {
                             // if we had hit false, we would have jumped over this
                             int indent = 1;
                             while (indent > 0) {
-                                opcode = stream.NextOpCode();
+                                opcode = SkipNext(ref stream);
                                 switch (opcode) {
                                     case OpCode.IF: indent++; break;
                                     case OpCode.EIF: indent--; break;
@@ -686,7 +748,16 @@ namespace SharpFont {
                                 throw new InvalidFontException("Can't define functions here.");
 
                             functions[stack.Pop()] = stream;
-                            while (stream.NextOpCode() != OpCode.ENDF) ;
+                            while (SkipNext(ref stream) != OpCode.ENDF) ;
+                        }
+                        break;
+                    case OpCode.IDEF:
+                        {
+                            if (!allowFunctionDefs || inFunction)
+                                throw new InvalidFontException("Can't define functions here.");
+
+                            instructionDefs[stack.Pop()] = stream;
+                            while (SkipNext(ref stream) != OpCode.ENDF) ;
                         }
                         break;
                     case OpCode.ENDF:
@@ -702,8 +773,8 @@ namespace SharpFont {
                             if (callStackSize > MaxCallStack)
                                 throw new InvalidFontException("Stack overflow; infinite recursion?");
 
-                            var count = opcode == OpCode.LOOPCALL ? stack.Pop() : 1;
                             var function = functions[stack.Pop()];
+                            var count = opcode == OpCode.LOOPCALL ? stack.Pop() : 1;
                             for (int i = 0; i < count; i++)
                                 Execute(function, true, false);
                             callStackSize--;
@@ -814,8 +885,19 @@ namespace SharpFont {
                             MoveIndirectRelative(opcode - OpCode.MIRP);
                         else if (opcode >= OpCode.MDRP)
                             MoveDirectRelative(opcode - OpCode.MDRP);
-                        else
-                            throw new InvalidFontException("Unknown opcode in font program.");
+                        else {
+                            // check if this is a runtime-defined opcode
+                            var index = (int)opcode;
+                            if (index > instructionDefs.Length || !instructionDefs[index].IsValid)
+                                throw new InvalidFontException("Unknown opcode in font program.");
+
+                            callStackSize++;
+                            if (callStackSize > MaxCallStack)
+                                throw new InvalidFontException("Stack overflow; infinite recursion?");
+
+                            Execute(instructionDefs[index], true, false);
+                            callStackSize--;
+                        }
                         break;
                 }
             }
@@ -1026,13 +1108,33 @@ namespace SharpFont {
                 state.Rp0 = pointIndex;
         }
 
-        void ShiftPoints (Vector2 displacement) {
+        Vector2 ComputeDisplacement (int mode, out Zone zone, out int point) {
+            // compute displacement of the reference point
+            if ((mode & 1) == 0) {
+                zone = zp1;
+                point = state.Rp2;
+            }
+            else {
+                zone = zp0;
+                point = state.Rp1;
+            }
+
+            var distance = Project(zone.GetCurrent(point) - zone.GetOriginal(point));
+            return distance * state.Freedom / fdotp;
+        }
+
+        TouchState GetTouchState () {
             var touch = TouchState.None;
             if (state.Freedom.X != 0)
                 touch = TouchState.X;
             if (state.Freedom.Y != 0)
                 touch |= TouchState.Y;
 
+            return touch;
+        }
+
+        void ShiftPoints (Vector2 displacement) {
+            var touch = GetTouchState();
             for (int i = 0; i < state.Loop; i++) {
                 var pointIndex = stack.Pop();
                 zp2.Current[pointIndex].P += displacement;
@@ -1043,12 +1145,7 @@ namespace SharpFont {
 
         void MovePoint (Zone zone, int index, float distance) {
             var point = zone.GetCurrent(index) + distance * state.Freedom / fdotp;
-            var touch = TouchState.None;
-            if (state.Freedom.X != 0)
-                touch = TouchState.X;
-            if (state.Freedom.Y != 0)
-                touch |= TouchState.Y;
-
+            var touch = GetTouchState();
             zone.Current[index].P = point;
             zone.TouchState[index] |= touch;
         }
@@ -1085,6 +1182,45 @@ namespace SharpFont {
 
         float Project (Vector2 point) => Vector2.Dot(point, state.Projection);
         float DualProject (Vector2 point) => Vector2.Dot(point, state.DualProjection);
+
+        static OpCode SkipNext (ref InstructionStream stream) {
+            // grab the next opcode, and if it's one of the push instructions skip over its arguments
+            var opcode = stream.NextOpCode();
+            switch (opcode) {
+                case OpCode.NPUSHB:
+                case OpCode.PUSHB1:
+                case OpCode.PUSHB2:
+                case OpCode.PUSHB3:
+                case OpCode.PUSHB4:
+                case OpCode.PUSHB5:
+                case OpCode.PUSHB6:
+                case OpCode.PUSHB7:
+                case OpCode.PUSHB8:
+                    {
+                        var count = opcode == OpCode.NPUSHB ? stream.NextByte() : opcode - OpCode.PUSHB1 + 1;
+                        for (int i = 0; i < count; i++)
+                            stream.NextByte();
+                    }
+                    break;
+                case OpCode.NPUSHW:
+                case OpCode.PUSHW1:
+                case OpCode.PUSHW2:
+                case OpCode.PUSHW3:
+                case OpCode.PUSHW4:
+                case OpCode.PUSHW5:
+                case OpCode.PUSHW6:
+                case OpCode.PUSHW7:
+                case OpCode.PUSHW8:
+                    {
+                        var count = opcode == OpCode.NPUSHW ? stream.NextByte() : opcode - OpCode.PUSHW1 + 1;
+                        for (int i = 0; i < count; i++)
+                            stream.NextWord();
+                    }
+                    break;
+            }
+
+            return opcode;
+        }
 
         static unsafe void InterpolatePoints (byte* current, byte* original, int start, int end, int ref1, int ref2) {
             if (start > end)
@@ -1143,6 +1279,7 @@ namespace SharpFont {
             byte[] instructions;
             int ip;
 
+            public bool IsValid => instructions != null;
             public bool Done => ip >= instructions.Length;
 
             public InstructionStream (byte[] instructions) {

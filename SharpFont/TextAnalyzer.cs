@@ -58,6 +58,7 @@ namespace SharpFont {
                 cache.Add(key, cachedFace = new CachedFace(font, size));
 
             // process each character in the string
+            var nextBreak = BreakCategory.None;
             var previous = new CodePoint();
             char* end = text + count;
             while (text != end) {
@@ -69,9 +70,13 @@ namespace SharpFont {
                 else
                     codePoint = c;
 
+                // ignore linefeeds directly after a carriage return
+                if (c == '\n' && (char)previous == '\r')
+                    continue;
+
                 // get the glyph data
                 CachedGlyph glyph;
-                if (!cachedFace.Glyphs.TryGetValue(codePoint, out glyph)) {
+                if (!cachedFace.Glyphs.TryGetValue(codePoint, out glyph) && !char.IsControl(c)) {
                     var data = font.GetGlyph(codePoint, size);
                     var width = data.RenderWidth;
                     var height = data.RenderHeight;
@@ -115,11 +120,28 @@ namespace SharpFont {
                 var kerning = font.GetKerning(previous, codePoint, size);
                 previous = codePoint;
 
+                // figure out whether this character can serve as a line break point
+                // TODO: more robust character class handling
+                var breakCategory = BreakCategory.None;
+                if (char.IsWhiteSpace(c)) {
+                    if (c == '\r' || c == '\n')
+                        breakCategory = BreakCategory.Mandatory;
+                    else
+                        breakCategory = BreakCategory.Opportunity;
+                }
+
+                // the previous character might make us think that this one should be a break opportunity
+                if (nextBreak > breakCategory)
+                    breakCategory = nextBreak;
+                if (c == '-')
+                    nextBreak = BreakCategory.Opportunity;
+
                 // alright, we have all the right glyph data cached and loaded
                 // append relevant info to our buffer; we'll do the actual layout later
                 buffer.Add(new BufferEntry {
                     GlyphData = glyph,
-                    Kerning = kerning
+                    Kerning = kerning,
+                    Break = breakCategory
                 });
             }
         }
@@ -130,7 +152,17 @@ namespace SharpFont {
             var pen = new Vector2(x, y);
             for (int i = 0; i < buffer.Count; i++) {
                 var entry = buffer[i];
+                if (entry.Break == BreakCategory.Mandatory) {
+                    pen.X = x;
+                    pen.Y += 32; // TODO: line spacing
+                }
+
+                // data can be null for control characters,
+                // or for glyphs without image data
                 var data = entry.GlyphData;
+                if (data == null)
+                    continue;
+
                 pen.X += entry.Kerning;
                 layout.AddGlyph(
                     (int)Math.Round(pen.X + data.Bearing.X),
@@ -148,6 +180,7 @@ namespace SharpFont {
         struct BufferEntry {
             public CachedGlyph GlyphData;
             public float Kerning;
+            public BreakCategory Break;
         }
 
         struct CachedFace {
@@ -211,6 +244,12 @@ namespace SharpFont {
             }
 
             static int RoundSize (int size) => (size + 3) & ~3;
+        }
+
+        enum BreakCategory {
+            None,
+            Opportunity,
+            Mandatory
         }
     }
 }

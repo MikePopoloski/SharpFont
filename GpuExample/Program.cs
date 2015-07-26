@@ -29,8 +29,21 @@ namespace GpuExample {
             
             var font = FontCollection.SystemFonts.Load("Arial");
             var analyzer = new TextAnalyzer(atlas);
-            var buffer = new TextBuffer(128);
+            var buffer = new TextBuffer(12800);
+            //buffer.Append(analyzer, font, ".");
             buffer.Append(analyzer, font, "Hello, World! (¼)");
+
+
+//            buffer.Append(analyzer, font,
+//@"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Phasellus congue vitae augue sit amet laoreet. Etiam eros ligula, vestibulum non nisi a, convallis sodales odio. Integer dapibus ipsum eros, sit amet euismod ligula fringilla quis. Pellentesque placerat, dui vitae venenatis aliquam, augue eros porttitor erat, sit amet imperdiet dolor nulla nec justo. Etiam at elit vel diam consectetur venenatis vel et eros. In leo ante, vestibulum eu volutpat a, facilisis et justo. Sed semper arcu id lectus faucibus, ac pretium nunc sagittis. Praesent faucibus eu nisl non lacinia. Suspendisse suscipit vulputate velit, non sodales augue. In ante nulla, tempus vitae nisi tincidunt, dignissim venenatis elit. Phasellus fermentum turpis sed sapien dapibus, quis varius leo mattis. Nam nisl nibh, eleifend in maximus ac, ultricies ut eros.
+
+//Phasellus auctor magna erat, iaculis interdum purus porta vulputate.Etiam vel neque at justo dictum tincidunt.Etiam enim nibh, dapibus accumsan blandit suscipit, dignissim vitae quam.Duis at metus et nulla posuere malesuada ut at urna.Quisque eget arcu venenatis, gravida tellus volutpat, vehicula tellus.Pellentesque rutrum purus vel ante sodales sollicitudin.Phasellus ut elit blandit, maximus ipsum ut, varius nisi.
+
+//Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos.Quisque volutpat in lectus sit amet pharetra.In mi justo, maximus sit amet viverra nec, posuere vel leo.Phasellus in justo quis ex semper suscipit.Pellentesque ut ornare purus.Donec et pretium metus.Integer dapibus est a nibh convallis pulvinar.Mauris metus diam, congue eget arcu volutpat, varius vehicula sapien.Donec posuere, massa et fringilla tincidunt, lacus ante fermentum sapien, ut dictum tellus erat id quam.Donec tempus urna velit, ac congue nibh egestas luctus.Praesent vel leo at enim imperdiet maximus non nec massa.
+
+//Pellentesque auctor ultricies accumsan.Vestibulum ipsum mi, tincidunt ut lacinia et, lobortis in lacus.Donec eu velit imperdiet, viverra mi ut, congue tortor.Vestibulum ac dui pretium, interdum tortor a, varius nulla.Nunc consequat neque sed sodales sagittis.Nullam condimentum metus sit amet sapien elementum, a pulvinar eros cursus.Sed eget elit tellus.Fusce ac pellentesque orci.Nullam sagittis malesuada elit, sed dignissim nibh sollicitudin malesuada.Mauris ac hendrerit enim.Aliquam ex urna, sagittis varius ex eu, commodo consequat tortor.
+
+//Praesent varius mauris sed lacus congue sollicitudin.Nulla lectus nunc, euismod id nibh quis, sollicitudin imperdiet neque.Maecenas suscipit quam sit amet venenatis cursus.Donec lacinia interdum rutrum.Phasellus quis odio justo.Duis sed justo quis quam rutrum consequat.Praesent et suscipit magna, eu condimentum mauris.Mauris in ligula odio.Integer tincidunt nisi et ipsum efficitur rutrum.");
 
             Bgfx.SetViewTransform(0, Matrix4x4.Identity, Matrix4x4.CreateOrthographicOffCenter(0, 1280, 720, 0, -1.0f, 1.0f));
 

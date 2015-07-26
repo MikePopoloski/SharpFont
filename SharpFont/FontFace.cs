@@ -204,7 +204,13 @@ namespace SharpFont {
                 // read in global font program data
                 controlValueTable = SfntTables.ReadCvt(reader, tables);
                 prepProgram = SfntTables.ReadProgram(reader, tables, FourCC.Prep);
-                interpreter = new Interpreter(head.MaxStackSize, head.MaxStorageLocations, head.MaxFunctionDefs, head.MaxTwilightPoints);
+                interpreter = new Interpreter(
+                    head.MaxStackSize,
+                    head.MaxStorageLocations,
+                    head.MaxFunctionDefs,
+                    head.MaxInstructionDefs,
+                    head.MaxTwilightPoints
+                );
 
                 // the fpgm table optionally contains a program to run at initialization time
                 var fpgm = SfntTables.ReadProgram(reader, tables, FourCC.Fpgm);
