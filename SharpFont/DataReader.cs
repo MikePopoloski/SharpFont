@@ -56,14 +56,14 @@ namespace SharpFont {
             }
             else {
                 readOffset = (int)(position - current + writeOffset);
-                CheckWrapAround();
+                CheckWrapAround(0);
             }
         }
 
         public void Skip (int count) {
             readOffset += count;
             if (readOffset < writeOffset)
-                CheckWrapAround();
+                CheckWrapAround(0);
             else {
                 // we've skipped everything in our buffer; clear it out
                 // and then skip any remaining data by seeking the stream
@@ -98,7 +98,8 @@ namespace SharpFont {
                     need -= read;
                 }
 
-                CheckWrapAround();
+                if (CheckWrapAround(count))
+                    result = start;
             }
 
             // most of the time we'll have plenty of data in the buffer
@@ -106,19 +107,22 @@ namespace SharpFont {
             return result;
         }
 
-        void CheckWrapAround () {
+        bool CheckWrapAround (int dataCount) {
             // if we've gone past the max read length, we can no longer ensure
             // that future read calls of maxReadLength size will be able to get a
             // contiguous buffer, so wrap back to the beginning
             if (readOffset >= maxReadLength) {
                 // back copy any buffered data so that it doesn't get lost
-                var copyCount = writeOffset - readOffset;
+                var copyCount = writeOffset - readOffset + dataCount;
                 if (copyCount > 0)
-                    Buffer.BlockCopy(buffer, readOffset, buffer, 0, copyCount);
+                    Buffer.BlockCopy(buffer, readOffset - dataCount, buffer, 0, copyCount);
 
-                readOffset = 0;
+                readOffset = dataCount;
                 writeOffset = copyCount;
+                return true;
             }
+
+            return false;
         }
 
         static uint htonl (uint value) {
