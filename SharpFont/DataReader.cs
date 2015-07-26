@@ -41,7 +41,14 @@ namespace SharpFont {
 
         public byte[] ReadBytes (int count) {
             var result = new byte[count];
-            Marshal.Copy(new IntPtr(Read(count)), result, 0, count);
+            int index = 0;
+            while (count > 0) {
+                var readCount = Math.Min(count, maxReadLength);
+                Marshal.Copy(new IntPtr(Read(readCount)), result, index, readCount);
+
+                count -= readCount;
+                index += readCount;
+            }
             return result;
         }
 
