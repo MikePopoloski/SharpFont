@@ -4,6 +4,7 @@ using System.Numerics;
 namespace SharpFont {
     class Interpreter {
         GraphicsState state;
+        GraphicsState cvtState;
         ExecutionStack stack;
         InstructionStream[] functions;
         InstructionStream[] instructionDefs;
@@ -26,7 +27,7 @@ namespace SharpFont {
             functions = new InstructionStream[maxFunctions];
             instructionDefs = new InstructionStream[maxInstructionDefs > 0 ? 256 : 0];
             state = new GraphicsState();
-
+            cvtState = new GraphicsState();
             twilight = new Zone(new PointF[maxTwilightPoints], isTwilight: true);
         }
 
@@ -47,8 +48,22 @@ namespace SharpFont {
             state.Reset();
             stack.Clear();
 
-            if (cvProgram != null)
+            if (cvProgram != null) {
                 Execute(new InstructionStream(cvProgram), false, false);
+
+                // save off the CVT graphics state so that we can restore it for each glyph we hint
+                if ((state.InstructionControl & InstructionControlFlags.UseDefaultGraphicsState) != 0)
+                    cvtState.Reset();
+                else {
+                    // always reset a few fields; copy the reset
+                    cvtState = state;
+                    cvtState.Freedom = Vector2.UnitX;
+                    cvtState.Projection = Vector2.UnitX;
+                    cvtState.DualProjection = Vector2.UnitX;
+                    cvtState.RoundState = RoundMode.ToGrid;
+                    cvtState.Loop = 1;
+                }
+            }
         }
 
         public void HintGlyph (PointF[] glyphPoints, int[] contours, byte[] instructions) {
@@ -58,28 +73,26 @@ namespace SharpFont {
             // check if the CVT program disabled hinting
             if ((state.InstructionControl & InstructionControlFlags.InhibitGridFitting) != 0)
                 return;
-
-            // check if we should reset our graphics state
-            if ((state.InstructionControl & InstructionControlFlags.UseDefaultGraphicsState) != 0)
-                state.Reset();
-            else {
-                // always reset a few fields
-                state.Freedom = Vector2.UnitX;
-                state.Projection = Vector2.UnitX;
-                state.DualProjection = Vector2.UnitX;
-                state.RoundState = RoundMode.ToGrid;
-                state.Loop = 1;
-            }
-
-            // TODO: track graphics state after CVT program and reset on each HintGlyph call
+            
             // TODO: composite glyphs
             // TODO: round the phantom points?
 
+            // save contours and points
             this.contours = contours;
             zp0 = zp1 = zp2 = points = new Zone(glyphPoints, isTwilight: false);
-            stack.Clear();
 
+            // reset all of our shared state
+            state = cvtState;
+            callStackSize = 0;
             debugList.Clear();
+            stack.Clear();
+            OnVectorsUpdated();
+
+            // normalize the round state settings
+            switch (state.RoundState) {
+                case RoundMode.Super: SetSuperRound(1.0f); break;
+                case RoundMode.Super45: SetSuperRound(Sqrt2Over2); break;
+            }
 
             Execute(new InstructionStream(instructions), false, false);
         }
@@ -1298,7 +1311,7 @@ namespace SharpFont {
             public void Jump (int offset) => ip += offset;
         }
 
-        class GraphicsState {
+        struct GraphicsState {
             public Vector2 Freedom;
             public Vector2 DualProjection;
             public Vector2 Projection;

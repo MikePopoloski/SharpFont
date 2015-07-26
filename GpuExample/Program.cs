@@ -27,10 +27,10 @@ namespace GpuExample {
             var u_texColor = new Uniform("u_texColor", UniformType.Int1);
             var atlas = new TextureAtlas(4096);
             
-            var font = FontCollection.SystemFonts.Load("Tahoma");
+            var font = FontCollection.SystemFonts.Load("Consolas");
             var analyzer = new TextAnalyzer(atlas);
             var buffer = new TextBuffer(12800);
-            //buffer.Append(analyzer, font, ".");
+            //buffer.Append(analyzer, font, "v");
             //buffer.Append(analyzer, font, "Hello, World! (¼)");
 
 
