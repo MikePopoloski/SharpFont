@@ -53,7 +53,6 @@
     <Compile Include="..\external\bgfx\SharpBgfx.cs">
       <Link>SharpBgfx.cs</Link>
     </Compile>
-    <Compile Include="GlyphCache.cs" />
     <Compile Include="TextBuffer.cs" />
     <Compile Include="TextureAtlas.cs" />
     <Compile Include="Program.cs" />
