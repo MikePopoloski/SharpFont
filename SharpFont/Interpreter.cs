@@ -195,7 +195,7 @@ namespace SharpFont {
                             var y = stack.Pop();
                             var x = stack.Pop();
                             var vec = Vector2.Normalize(new Vector2(F2Dot14ToFloat(x), F2Dot14ToFloat(y)));
-                            if (opcode == OpCode.SPVFS)
+                            if (opcode == OpCode.SFVFS)
                                 state.Freedom = vec;
                             else {
                                 state.Projection = vec;
