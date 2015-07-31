@@ -42,6 +42,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Internal\BinPacker.cs" />
+    <Compile Include="Internal\SbitTable.cs" />
     <Compile Include="Internal\CharacterMap.cs" />
     <Compile Include="Internal\DataReader.cs" />
     <Compile Include="FontCollection.cs" />

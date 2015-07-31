@@ -565,7 +565,7 @@ namespace SharpFont {
             WWS = 0x100,
             Oblique = 0x200
         }
-
+        
         struct GlyphHeader {
             public short ContourCount;
             public short MinX;
@@ -772,5 +772,6 @@ namespace SharpFont {
         public static readonly FourCC Cvt = "cvt ";
         public static readonly FourCC Fpgm = "fpgm";
         public static readonly FourCC Prep = "prep";
+        public static readonly FourCC Eblc = "EBLC";
     }
 }

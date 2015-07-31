@@ -165,6 +165,9 @@ namespace SharpFont {
                     }
                 }
 
+                // embedded bitmaps
+                SbitTable.Read(reader, tables);
+
                 // metrics calculations: if the UseTypographicMetrics flag is set, then
                 // we should use the sTypo*** data for line height calculation
                 if (os2Data.UseTypographicMetrics) {
