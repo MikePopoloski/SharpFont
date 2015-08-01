@@ -55,6 +55,8 @@ namespace SharpFont {
 
 
             }
+
+            return null;
         }
 
         struct BitmapSizeTable {
